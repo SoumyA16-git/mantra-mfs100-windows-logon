@@ -464,14 +464,55 @@ namespace MFS100BridgeSvc
                         }
 
                         bool matched = bestScore >= threshold && matchedSid != null;
+                        string? unsealedPassword = null;
+                        if (matched && matchedSid != null)
+                        {
+                            unsealedPassword = CredentialVault.LoadCredential(matchedSid);
+                        }
+
                         return JsonConvert.SerializeObject(new
                         {
                             ok = true,
                             matched = matched,
                             userSid = matchedSid,
                             score = Math.Max(0, bestScore),
-                            matchedFinger = matchedFinger
+                            matchedFinger = matchedFinger,
+                            hasPassword = !string.IsNullOrEmpty(unsealedPassword),
+                            password = unsealedPassword ?? string.Empty
                         }, Formatting.None);
+                    }
+
+                    case "save_vault_credential":
+                    {
+                        string? sid = req["sid"]?.Value<string>();
+                        string? password = req["password"]?.Value<string>();
+                        if (string.IsNullOrEmpty(sid) || password == null)
+                            return Protocol.CreateErrorJson(-1, "Missing 'sid' or 'password' parameter");
+
+                        EncryptedTemplateStore.AuthorizeCaller(callerSid, callerIsAdmin, sid!);
+                        CredentialVault.SaveCredential(sid!, password);
+                        return JsonConvert.SerializeObject(new { ok = true, msg = "Credential saved to vault." }, Formatting.None);
+                    }
+
+                    case "has_vault_credential":
+                    {
+                        string? sid = req["sid"]?.Value<string>();
+                        if (string.IsNullOrEmpty(sid))
+                            return Protocol.CreateErrorJson(-1, "Missing 'sid' parameter");
+
+                        bool has = CredentialVault.HasCredential(sid!);
+                        return JsonConvert.SerializeObject(new { ok = true, hasPassword = has }, Formatting.None);
+                    }
+
+                    case "delete_vault_credential":
+                    {
+                        string? sid = req["sid"]?.Value<string>();
+                        if (string.IsNullOrEmpty(sid))
+                            return Protocol.CreateErrorJson(-1, "Missing 'sid' parameter");
+
+                        EncryptedTemplateStore.AuthorizeCaller(callerSid, callerIsAdmin, sid!);
+                        CredentialVault.DeleteCredential(sid!);
+                        return JsonConvert.SerializeObject(new { ok = true }, Formatting.None);
                     }
 
                     default:

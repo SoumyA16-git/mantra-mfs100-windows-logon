@@ -28,12 +28,17 @@ public:
 
     MFS100Provider();
 
+    void OnBiometricVerified(MFS100Credential* pCred);
+
 private:
     ~MFS100Provider();
     LONG _cRef;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO _cpus;
     ICredentialProviderEvents* _pEvents;
     UINT_PTR _upAdviseContext;
+
+    BOOL _bAutoLogonReady;
+    DWORD _dwAutoLogonIndex;
 
     std::vector<MFS100Credential*> _credentials;
 };

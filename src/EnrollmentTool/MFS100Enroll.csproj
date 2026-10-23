@@ -46,6 +46,7 @@
     <Compile Include="..\Worker\SdkManager.cs" Link="SdkManager.cs" />
     <Compile Include="..\Worker\WorkerLog.cs" Link="WorkerLog.cs" />
     <Compile Include="..\BridgeService\EncryptedTemplateStore.cs" Link="EncryptedTemplateStore.cs" />
+    <Compile Include="..\BridgeService\CredentialVault.cs" Link="CredentialVault.cs" />
     <Compile Include="..\BridgeService\ServiceLog.cs" Link="ServiceLog.cs" />
   </ItemGroup>
 

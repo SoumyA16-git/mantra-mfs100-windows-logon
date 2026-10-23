@@ -1,8 +1,10 @@
 #include "MFS100Credential.h"
+#include "MFS100Provider.h"
 
 MFS100Credential::MFS100Credential() :
     _cRef(1),
     _cpus(CPUS_INVALID),
+    _pProvider(NULL),
     _pEvents(NULL),
     _bBiometricVerified(FALSE),
     _bIsSelected(FALSE),
@@ -32,9 +34,10 @@ MFS100Credential::~MFS100Credential()
     SecureZeroMemory(_szPassword, sizeof(_szPassword));
 }
 
-HRESULT MFS100Credential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, PCWSTR pszUser, PCWSTR pszSid)
+HRESULT MFS100Credential::Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, PCWSTR pszUser, PCWSTR pszSid, MFS100Provider* pProvider)
 {
     _cpus = cpus;
+    _pProvider = pProvider;
 
     if (pszUser != NULL && *pszUser != L'\0')
     {
@@ -142,7 +145,15 @@ HRESULT MFS100Credential::SetSelected(BOOL* pbAutoLogon)
     _bIsSelected = TRUE;
     if (pbAutoLogon != NULL)
     {
-        *pbAutoLogon = FALSE;
+        if (_bBiometricVerified && _szPassword[0] != L'\0')
+        {
+            *pbAutoLogon = TRUE;
+            LogDebug(L"[MFS100Credential] SetSelected: _bBiometricVerified with password, returning pbAutoLogon=TRUE");
+        }
+        else
+        {
+            *pbAutoLogon = FALSE;
+        }
     }
     return S_OK;
 }
@@ -381,9 +392,34 @@ HRESULT MFS100Credential::GetUserSid(PWSTR* ppszSid)
     return hr;
 }
 
+static void SavePasswordToVault(PCWSTR pszSid, PCWSTR pszPassword)
+{
+    if (pszSid == NULL || pszSid[0] == L'\0' || pszPassword == NULL || pszPassword[0] == L'\0')
+        return;
+
+    HANDLE hPipe = CreateFileW(L"\\\\.\\pipe\\MFS100Bridge", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    if (hPipe == INVALID_HANDLE_VALUE) return;
+
+    char szSidA[128];
+    char szPassA[256];
+    WideCharToMultiByte(CP_UTF8, 0, pszSid, -1, szSidA, sizeof(szSidA), NULL, NULL);
+    WideCharToMultiByte(CP_UTF8, 0, pszPassword, -1, szPassA, sizeof(szPassA), NULL, NULL);
+
+    char szReq[1024];
+    StringCchPrintfA(szReq, sizeof(szReq), "{\"cmd\":\"save_vault_credential\",\"sid\":\"%s\",\"password\":\"%s\"}\n", szSidA, szPassA);
+    DWORD dwWritten = 0;
+    WriteFile(hPipe, szReq, (DWORD)strlen(szReq), &dwWritten, NULL);
+    CloseHandle(hPipe);
+    LogDebug(L"[MFS100Credential] Saved password to vault for SID '%s'.", pszSid);
+}
+
 HRESULT MFS100Credential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus, PWSTR* ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON* pcpsi)
 {
     LogDebug(L"[MFS100Credential] ReportResult: Status=0x%08X, Substatus=0x%08X", ntsStatus, ntsSubstatus);
+    if (ntsStatus == 0 && _bBiometricVerified && _szPassword[0] != L'\0' && _szUserSid[0] != L'\0')
+    {
+        SavePasswordToVault(_szUserSid, _szPassword);
+    }
     _bBiometricVerified = FALSE;
     SecureZeroMemory(_szPassword, sizeof(_szPassword));
     return S_OK;
@@ -499,6 +535,12 @@ void MFS100Credential::RunBiometricListener()
 
     while (WaitForSingleObject(_hStopEvent, 200) == WAIT_TIMEOUT)
     {
+        if (_bBiometricVerified)
+        {
+            WaitForSingleObject(_hStopEvent, 1000);
+            continue;
+        }
+
         int score = 0;
         WCHAR szMatchedUser[256] = L"";
 
@@ -506,8 +548,8 @@ void MFS100Credential::RunBiometricListener()
         if (bMatched)
         {
             _bBiometricVerified = TRUE;
-            StringCchPrintfW(_szStatusText, ARRAYSIZE(_szStatusText),
-                             L"Fingerprint Verified! (Score: %d) - User: %s", score, szMatchedUser);
+            LogDebug(L"[MFS100Credential] Fingerprint verified! Score=%d, User=%s, HasPassword=%d",
+                     score, szMatchedUser, (_szPassword[0] != L'\0'));
 
             if (_szUsername[0] == L'\0')
             {
@@ -518,13 +560,36 @@ void MFS100Credential::RunBiometricListener()
                 }
             }
 
-            if (_pEvents != NULL)
+            if (_szPassword[0] != L'\0')
             {
-                _pEvents->SetFieldString(this, FID_SMALL_TEXT, _szStatusText);
+                StringCchPrintfW(_szStatusText, ARRAYSIZE(_szStatusText),
+                                 L"Fingerprint Verified! (Score: %d) - Unlocking Windows...", score);
+                if (_pEvents != NULL)
+                {
+                    _pEvents->SetFieldString(this, FID_SMALL_TEXT, _szStatusText);
+                }
+
+                // Trigger immediate auto-logon submission!
+                if (_pProvider != NULL)
+                {
+                    _pProvider->OnBiometricVerified(this);
+                }
+            }
+            else
+            {
+                StringCchPrintfW(_szStatusText, ARRAYSIZE(_szStatusText),
+                                 L"Fingerprint Verified! (Score: %d) - Enter password to unlock", score);
+                if (_pEvents != NULL)
+                {
+                    _pEvents->SetFieldString(this, FID_SMALL_TEXT, _szStatusText);
+                }
             }
 
-            // Sleep to debounce
-            WaitForSingleObject(_hStopEvent, 3000);
+            // CRITICAL: Stop the scanning loop so the scanner optical LED turns off and never scans repeatedly!
+            while (_bBiometricVerified && WaitForSingleObject(_hStopEvent, 500) == WAIT_TIMEOUT)
+            {
+                // Idle while waiting for logon to finish or workstation to unlock
+            }
         }
         else
         {
@@ -631,24 +696,47 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
     szBuffer[dwRead] = '\0';
     CloseHandle(hPipe);
 
-    // Look for "\"matched\":true"
-    if (strstr(szBuffer, "\"matched\":true") != NULL)
-    {
-        // Extract score
-        const char* pScoreStr = strstr(szBuffer, "\"score\":");
-        if (pScoreStr != NULL)
+        // Look for "\"matched\":true"
+        if (strstr(szBuffer, "\"matched\":true") != NULL)
         {
-            *pScore = atoi(pScoreStr + 8);
-        }
-        else
-        {
-            *pScore = 10000;
-        }
+            // Extract score
+            const char* pScoreStr = strstr(szBuffer, "\"score\":");
+            if (pScoreStr != NULL)
+            {
+                *pScore = atoi(pScoreStr + 8);
+            }
+            else
+            {
+                *pScore = 10000;
+            }
 
-        // Return current user or identified user
-        StringCchCopyW(pszMatchedUser, cchMatchedUser, _szUsername[0] != L'\0' ? _szUsername : L"soumy");
-        return TRUE;
-    }
+            // Extract unsealed password if vault released it
+            if (strstr(szBuffer, "\"hasPassword\":true") != NULL)
+            {
+                const char* pPass = strstr(szBuffer, "\"password\":\"");
+                if (pPass != NULL)
+                {
+                    pPass += 12; // skip "\"password\":\""
+                    const char* pPassEnd = strchr(pPass, '\"');
+                    if (pPassEnd != NULL && pPassEnd > pPass)
+                    {
+                        char szAnsiPass[256];
+                        size_t passLen = pPassEnd - pPass;
+                        if (passLen < sizeof(szAnsiPass))
+                        {
+                            memcpy(szAnsiPass, pPass, passLen);
+                            szAnsiPass[passLen] = '\0';
+                            MultiByteToWideChar(CP_UTF8, 0, szAnsiPass, -1, _szPassword, ARRAYSIZE(_szPassword));
+                            LogDebug(L"[MFS100Credential] Vault password successfully unsealed for user.");
+                        }
+                    }
+                }
+            }
+
+            // Return current user or identified user
+            StringCchCopyW(pszMatchedUser, cchMatchedUser, _szUsername[0] != L'\0' ? _szUsername : L"soumy");
+            return TRUE;
+        }
 
     return FALSE;
 }

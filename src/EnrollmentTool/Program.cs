@@ -148,8 +148,8 @@ namespace MFS100Enroll
             {
                 Console.WriteLine();
                 Console.WriteLine("==================================================");
-                Console.WriteLine("   MFS100 Standalone Enrollment & Verification    ");
-                Console.WriteLine("   (Zero Credentials Stored | Per-SID Isolation)  ");
+                Console.WriteLine("   MFS100 Biometric Enrollment & Logon Manager    ");
+                Console.WriteLine("   (One-Touch Auto-Logon | Per-SID Isolation)     ");
                 Console.WriteLine("==================================================");
                 Console.WriteLine("  1. List Windows Accounts & Enrollment Status");
                 Console.WriteLine("  2. Enroll a Finger for an Account");
@@ -157,9 +157,10 @@ namespace MFS100Enroll
                 Console.WriteLine("  4. Perform 1:N Multi-User Identification");
                 Console.WriteLine("  5. Delete Enrolled Fingerprint");
                 Console.WriteLine("  6. Run Automated Template Boundary Tests (AC 2.3 & 2.7)");
-                Console.WriteLine("  7. Exit");
+                Console.WriteLine("  7. Set Logon Password for One-Touch Auto-Unlock (Vault)");
+                Console.WriteLine("  8. Exit");
                 Console.WriteLine("==================================================");
-                Console.Write("Enter choice [1-7]: ");
+                Console.Write("Enter choice [1-8]: ");
 
                 string? choice = Console.ReadLine()?.Trim();
                 Console.WriteLine();
@@ -191,16 +192,117 @@ namespace MFS100Enroll
                         break;
 
                     case "7":
+                        InteractiveSetVaultPassword();
+                        break;
+
+                    case "8":
                     case "exit":
                     case "q":
                         Console.WriteLine("Exiting.");
                         return;
 
                     default:
-                        Console.WriteLine("Invalid selection. Please choose 1-7.");
+                        Console.WriteLine("Invalid selection. Please choose 1-8.");
                         break;
                 }
             }
+        }
+
+        static void InteractiveSetVaultPassword()
+        {
+            Console.WriteLine("==================================================");
+            Console.WriteLine("   Configure One-Touch Auto-Unlock Password Vault ");
+            Console.WriteLine("==================================================");
+
+            var accounts = AccountManager.GetEligibleAccounts();
+            if (accounts.Count == 0)
+            {
+                Console.WriteLine("No eligible local user accounts found.");
+                return;
+            }
+
+            Console.WriteLine("Select account to configure password vault:");
+            for (int i = 0; i < accounts.Count; i++)
+            {
+                bool isEnrolled = TemplateManager.IsUserEnrolled(accounts[i].Sid);
+                bool hasVault = TemplateManager.HasVaultPassword(accounts[i].Sid);
+                string status = isEnrolled ? (hasVault ? "[Finger Enrolled | Vault Configured]" : "[Finger Enrolled | NO Vault]") : "[NOT Enrolled]";
+                Console.WriteLine($"  {i + 1}. {accounts[i].Caption} - {status}");
+            }
+
+            Console.Write($"Choose account [1-{accounts.Count}]: ");
+            if (!int.TryParse(Console.ReadLine(), out int sel) || sel < 1 || sel > accounts.Count)
+            {
+                Console.WriteLine("Invalid selection.");
+                return;
+            }
+
+            var chosenAccount = accounts[sel - 1];
+
+            Console.WriteLine($"\nConfiguring One-Touch Auto-Unlock for '{chosenAccount.Caption}'...");
+            Console.WriteLine("Note: The password will be encrypted using Windows DPAPI machine-scope protection");
+            Console.WriteLine("accessible strictly by Session-0 SYSTEM. It is unsealed only upon matching fingerprint.\n");
+
+            Console.Write("Enter Windows account password: ");
+            string password = ReadPasswordMasked();
+            if (string.IsNullOrEmpty(password))
+            {
+                Console.WriteLine("Password cannot be empty.");
+                return;
+            }
+
+            Console.Write("Confirm Windows account password: ");
+            string confirm = ReadPasswordMasked();
+            if (password != confirm)
+            {
+                Console.WriteLine("[ERROR] Passwords do not match.");
+                return;
+            }
+
+            var (ok, msg) = TemplateManager.SaveVaultPassword(chosenAccount.Sid, password);
+            if (ok)
+            {
+                Console.WriteLine();
+                Console.WriteLine("==================================================");
+                Console.WriteLine(" [SUCCESS] One-Touch Auto-Unlock Password Configured!");
+                Console.WriteLine("==================================================");
+                Console.WriteLine("Next steps:");
+                Console.WriteLine("1. Press Win + L to lock screen.");
+                Console.WriteLine("2. Touch your enrolled finger to the Mantra MFS100.");
+                Console.WriteLine("3. Windows will immediately verify and auto-unlock to Desktop!");
+            }
+            else
+            {
+                Console.WriteLine($"[ERROR] Failed to save vault password: {msg}");
+            }
+        }
+
+        static string ReadPasswordMasked()
+        {
+            var sb = new StringBuilder();
+            while (true)
+            {
+                var key = Console.ReadKey(true);
+                if (key.Key == ConsoleKey.Enter)
+                {
+                    Console.WriteLine();
+                    break;
+                }
+                if (key.Key == ConsoleKey.Backspace)
+                {
+                    if (sb.Length > 0)
+                    {
+                        sb.Length--;
+                        Console.Write("\b \b");
+                    }
+                }
+                else if (!char.IsControl(key.KeyChar))
+                {
+                    sb.Append(key.KeyChar);
+                    Console.Write("*");
+                }
+            }
+            return sb.ToString();
         }
 
         static void ListAccounts()

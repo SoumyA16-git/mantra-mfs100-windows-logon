@@ -369,6 +369,54 @@ namespace MFS100Enroll
             }
         }
 
+        public static (bool ok, string msg) SaveVaultPassword(string userSid, string password)
+        {
+            try
+            {
+                if (IsServiceAvailable())
+                {
+                    var req = new
+                    {
+                        cmd = "save_vault_credential",
+                        sid = userSid,
+                        password = password
+                    };
+                    string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 5000);
+                    var j = JObject.Parse(rspJson);
+                    bool ok = j["ok"]?.Value<bool>() == true;
+                    string msg = j["msg"]?.Value<string>() ?? (ok ? "Password saved to vault." : "Failed to save password.");
+                    return (ok, msg);
+                }
+
+                // Fallback for direct local testing
+                CredentialVault.SaveCredential(userSid, password);
+                return (true, "Password saved to vault directly via DPAPI.");
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Failed to save vault password: {ex.Message}");
+            }
+        }
+
+        public static bool HasVaultPassword(string userSid)
+        {
+            try
+            {
+                if (IsServiceAvailable())
+                {
+                    var req = new { cmd = "has_vault_credential", sid = userSid };
+                    string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 3000);
+                    var j = JObject.Parse(rspJson);
+                    return j["hasPassword"]?.Value<bool>() == true;
+                }
+                return CredentialVault.HasCredential(userSid);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         public static string GetTemplateFilePath(string userSid) =>
             EncryptedTemplateStore.GetTemplateFilePath(userSid);
     }

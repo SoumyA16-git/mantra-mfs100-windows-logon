@@ -15,9 +15,32 @@ MFS100Provider::MFS100Provider() :
     _cRef(1),
     _cpus(CPUS_INVALID),
     _pEvents(NULL),
-    _upAdviseContext(0)
+    _upAdviseContext(0),
+    _bAutoLogonReady(FALSE),
+    _dwAutoLogonIndex(0)
 {
     LogDebug(L"[MFS100Provider] Constructor called.");
+}
+
+void MFS100Provider::OnBiometricVerified(MFS100Credential* pCred)
+{
+    LogDebug(L"[MFS100Provider] OnBiometricVerified called.");
+    _dwAutoLogonIndex = 0;
+    for (size_t i = 0; i < _credentials.size(); i++)
+    {
+        if (_credentials[i] == pCred)
+        {
+            _dwAutoLogonIndex = (DWORD)i;
+            break;
+        }
+    }
+    _bAutoLogonReady = TRUE;
+
+    if (_pEvents != NULL)
+    {
+        LogDebug(L"[MFS100Provider] Triggering CredentialsChanged for auto-logon on index %d", _dwAutoLogonIndex);
+        _pEvents->CredentialsChanged(_upAdviseContext);
+    }
 }
 
 MFS100Provider::~MFS100Provider()
@@ -160,16 +183,27 @@ HRESULT MFS100Provider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, B
         MFS100Credential* pCred = new MFS100Credential();
         if (pCred != NULL)
         {
-            pCred->Initialize(_cpus, L"babu_vm\\soumy", L"S-1-5-21-3272715156-751205776-2342815491-1001");
+            pCred->Initialize(_cpus, L"babu_vm\\soumy", L"S-1-5-21-3272715156-751205776-2342815491-1001", this);
             _credentials.push_back(pCred);
         }
     }
 
     *pdwCount = (DWORD)_credentials.size();
-    *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
-    *pbAutoLogonWithDefault = FALSE;
 
-    LogDebug(L"[MFS100Provider] GetCredentialCount: %d, pdwDefault: CREDENTIAL_PROVIDER_NO_DEFAULT", *pdwCount);
+    if (_bAutoLogonReady)
+    {
+        *pdwDefault = _dwAutoLogonIndex;
+        *pbAutoLogonWithDefault = TRUE;
+        _bAutoLogonReady = FALSE;
+        LogDebug(L"[MFS100Provider] GetCredentialCount: Auto-logon requested for default credential %d", *pdwDefault);
+    }
+    else
+    {
+        *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
+        *pbAutoLogonWithDefault = FALSE;
+        LogDebug(L"[MFS100Provider] GetCredentialCount: %d, pdwDefault: CREDENTIAL_PROVIDER_NO_DEFAULT", *pdwCount);
+    }
+
     return S_OK;
 }
 
@@ -243,7 +277,7 @@ HRESULT MFS100Provider::SetUserArray(ICredentialProviderUserArray* users)
                     MFS100Credential* pCred = new MFS100Credential();
                     if (pCred != NULL)
                     {
-                        pCred->Initialize(_cpus, szFull, pszSid);
+                        pCred->Initialize(_cpus, szFull, pszSid, this);
                         _credentials.push_back(pCred);
                         LogDebug(L"[MFS100Provider] Created credential for '%s' (SID: '%s')", szFull, pszSid);
                     }
@@ -261,7 +295,7 @@ HRESULT MFS100Provider::SetUserArray(ICredentialProviderUserArray* users)
         MFS100Credential* pCred = new MFS100Credential();
         if (pCred != NULL)
         {
-            pCred->Initialize(_cpus, L"babu_vm\\soumy", L"S-1-5-21-3272715156-751205776-2342815491-1001");
+            pCred->Initialize(_cpus, L"babu_vm\\soumy", L"S-1-5-21-3272715156-751205776-2342815491-1001", this);
             _credentials.push_back(pCred);
         }
     }

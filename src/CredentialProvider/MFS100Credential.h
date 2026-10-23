@@ -37,12 +37,13 @@ public:
     IFACEMETHODIMP GetUserSid(PWSTR* ppszSid);
 
     MFS100Credential();
-    HRESULT Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, PCWSTR pszUser, PCWSTR pszSid);
+    HRESULT Initialize(CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus, PCWSTR pszUser, PCWSTR pszSid, class MFS100Provider* pProvider);
 
 private:
     ~MFS100Credential();
     LONG _cRef;
     CREDENTIAL_PROVIDER_USAGE_SCENARIO _cpus;
+    class MFS100Provider* _pProvider;
     ICredentialProviderCredentialEvents* _pEvents;
 
     WCHAR _szUsername[256];
