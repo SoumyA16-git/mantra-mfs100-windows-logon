@@ -41,6 +41,15 @@ namespace MFS100Worker
             WorkerLog.Info("Pipe mode started — awaiting commands on stdin");
 
             using var sdk = new SdkManager();
+            var (initOk, initMsg) = sdk.Init();
+            if (initOk)
+            {
+                WorkerLog.Info("MFS100 SDK successfully initialised on worker startup");
+            }
+            else
+            {
+                WorkerLog.Warn($"MFS100 SDK initialisation deferred/pending on worker startup: {initMsg}");
+            }
 
             // Use raw stdin/stdout for the JSON protocol so SDK stdout redirect
             // does not interfere.
@@ -114,8 +123,10 @@ namespace MFS100Worker
                         int timeoutMs = cmd["timeoutMs"]?.Value<int>() ?? 10000;
                         CaptureResult r = sdk.Capture(timeoutMs);
                         if (!r.Ok) return Error(r.ErrorCode, r.ErrorMsg);
+                        string isoB64 = Convert.ToBase64String(r.IsoTemplate);
                         return Ok(new {
-                            isoTemplate  = Convert.ToBase64String(r.IsoTemplate),
+                            isoTemplate  = isoB64,
+                            template     = isoB64,
                             ansiTemplate = Convert.ToBase64String(r.AnsiTemplate),
                             quality      = r.Quality,
                             nfiq         = r.Nfiq

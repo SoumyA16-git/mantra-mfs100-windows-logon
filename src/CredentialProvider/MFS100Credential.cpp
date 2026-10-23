@@ -493,16 +493,28 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
     }
     szBuffer[dwRead] = '\0';
 
-    // Check if capture succeeded: look for "\"quality\":" and "\"template\":"
+    // Check if capture succeeded: look for "\"quality\":" and either "\"isoTemplate\":\"" or "\"template\":\""
     const char* pQual = strstr(szBuffer, "\"quality\":");
-    const char* pTmpl = strstr(szBuffer, "\"template\":\"");
+    const char* pTmpl = strstr(szBuffer, "\"isoTemplate\":\"");
+    if (pTmpl != NULL)
+    {
+        pTmpl += 15; // skip "\"isoTemplate\":\""
+    }
+    else
+    {
+        pTmpl = strstr(szBuffer, "\"template\":\"");
+        if (pTmpl != NULL)
+        {
+            pTmpl += 12; // skip "\"template\":\""
+        }
+    }
+
     if (pQual == NULL || pTmpl == NULL)
     {
         CloseHandle(hPipe);
         return FALSE;
     }
 
-    pTmpl += 12; // skip "\"template\":\""
     const char* pTmplEnd = strchr(pTmpl, '\"');
     if (pTmplEnd == NULL)
     {

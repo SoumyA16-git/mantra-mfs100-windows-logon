@@ -11,7 +11,12 @@ if %errorlevel% neq 0 (
 )
 
 sc stop MFS100BridgeSvc >nul 2>&1
+timeout /t 1 /nobreak >nul
+taskkill /f /im MFS100BridgeSvc.exe >nul 2>&1
+taskkill /f /im MFS100Worker.exe >nul 2>&1
+timeout /t 1 /nobreak >nul
 sc delete MFS100BridgeSvc >nul 2>&1
+timeout /t 1 /nobreak >nul
 
 mkdir "C:\Program Files\MFS100" >nul 2>&1
 copy /y "%~dp0*.*" "C:\Program Files\MFS100\"

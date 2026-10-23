@@ -362,6 +362,7 @@ namespace MFS100BridgeSvc
 
                         int highestScore = -1;
                         EnrolledFingerRecord? bestFinger = null;
+                        string? lastError = null;
 
                         foreach (var f in record.Fingers)
                         {
@@ -373,7 +374,16 @@ namespace MFS100BridgeSvc
                             };
                             string matchRspJson = await _workerHost.SendCommandAsync(JsonConvert.SerializeObject(matchReq), 5000);
                             var matchRsp = JObject.Parse(matchRspJson);
+                            bool matchOk = matchRsp["ok"]?.Value<bool>() == true;
+                            if (!matchOk)
+                            {
+                                lastError = matchRsp["errorMsg"]?.Value<string>() ?? "Worker match failed";
+                                ServiceLog.Error($"Match probe against SID '{sid}' finger {f.FingerIndex} failed: {lastError}");
+                                continue;
+                            }
+
                             int score = matchRsp["score"]?.Value<int>() ?? 0;
+                            ServiceLog.Info($"Match probe against SID '{sid}' finger {f.FingerIndex}: score={score}");
                             if (score > highestScore)
                             {
                                 highestScore = score;
@@ -381,12 +391,17 @@ namespace MFS100BridgeSvc
                             }
                         }
 
+                        if (highestScore < 0 && lastError != null)
+                        {
+                            return Protocol.CreateErrorJson(-5, $"Matching failed in biometric worker: {lastError}");
+                        }
+
                         bool accessGranted = highestScore >= threshold;
                         return JsonConvert.SerializeObject(new
                         {
                             ok = true,
                             accessGranted = accessGranted,
-                            score = highestScore,
+                            score = Math.Max(0, highestScore),
                             matchedFinger = accessGranted ? (int?)bestFinger?.FingerIndex : null,
                             label = accessGranted ? bestFinger?.FingerLabel : null
                         }, Formatting.None);
@@ -404,6 +419,7 @@ namespace MFS100BridgeSvc
                         int bestScore = -1;
                         string? matchedSid = null;
                         int? matchedFinger = null;
+                        string? lastError = null;
 
                         foreach (var sid in allSids)
                         {
@@ -420,8 +436,16 @@ namespace MFS100BridgeSvc
                                 };
                                 string matchRspJson = await _workerHost.SendCommandAsync(JsonConvert.SerializeObject(matchReq), 5000);
                                 var matchRsp = JObject.Parse(matchRspJson);
+                                bool matchOk = matchRsp["ok"]?.Value<bool>() == true;
+                                if (!matchOk)
+                                {
+                                    lastError = matchRsp["errorMsg"]?.Value<string>() ?? "Worker match failed";
+                                    ServiceLog.Error($"Match probe against SID '{sid}' finger {f.FingerIndex} failed: {lastError}");
+                                    continue;
+                                }
+
                                 int score = matchRsp["score"]?.Value<int>() ?? 0;
-                                ServiceLog.Info($"Match probe against SID '{sid}' finger {f.FingerIndex}: score={score}, ok={matchRsp["ok"]}");
+                                ServiceLog.Info($"Match probe against SID '{sid}' finger {f.FingerIndex}: score={score}");
                                 if (score > bestScore)
                                 {
                                     bestScore = score;
@@ -434,13 +458,18 @@ namespace MFS100BridgeSvc
                             }
                         }
 
+                        if (bestScore < 0 && lastError != null)
+                        {
+                            return Protocol.CreateErrorJson(-5, $"Matching failed in biometric worker: {lastError}");
+                        }
+
                         bool matched = bestScore >= threshold && matchedSid != null;
                         return JsonConvert.SerializeObject(new
                         {
                             ok = true,
                             matched = matched,
                             userSid = matchedSid,
-                            score = bestScore,
+                            score = Math.Max(0, bestScore),
                             matchedFinger = matchedFinger
                         }, Formatting.None);
                     }

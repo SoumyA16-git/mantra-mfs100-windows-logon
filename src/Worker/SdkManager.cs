@@ -51,6 +51,18 @@ namespace MFS100Worker
         MFS100? _mfs;
         bool    _initialized;
 
+        public SdkManager()
+        {
+            try
+            {
+                _mfs = new MFS100();
+            }
+            catch (Exception ex)
+            {
+                WorkerLog.Error($"Failed to instantiate MFS100: {ex}");
+            }
+        }
+
         // -----------------------------------------------------------------------
         // Init / Uninit
         // -----------------------------------------------------------------------
@@ -61,9 +73,10 @@ namespace MFS100Worker
         /// </summary>
         public (bool ok, string errorMsg) Init()
         {
+            if (_initialized) return (true, "");
             try
             {
-                _mfs = new MFS100();
+                if (_mfs == null) _mfs = new MFS100();
 
                 if (!_mfs.IsConnected())
                 {
@@ -189,6 +202,11 @@ namespace MFS100Worker
         {
             if (_mfs == null)
             {
+                try { _mfs = new MFS100(); } catch { }
+            }
+
+            if (_mfs == null)
+            {
                 return FailMatch(-1, "MFS100 SDK object is null");
             }
 
@@ -196,7 +214,9 @@ namespace MFS100Worker
             {
                 var (initOk, initMsg) = Init();
                 if (!initOk)
-                    return FailMatch(-1, $"SDK Init failed: {initMsg}");
+                {
+                    WorkerLog.Warn($"Match: Init() was not successful ({initMsg}), proceeding with MatchISO");
+                }
             }
 
             if (probe == null || probe.Length == 0)

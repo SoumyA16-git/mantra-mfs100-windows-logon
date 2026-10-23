@@ -279,45 +279,94 @@ namespace MFS100Enroll
             return list;
         }
 
-        public static (bool ok, bool accessGranted, int score, string? label) MatchUserViaService(string userSid, byte[] probeTemplate, int threshold = 1400)
+        public static (bool ok, byte[]? isoTemplate, int quality, int nfiq, string? errorMsg) CaptureViaService(int timeoutMs = 15000)
         {
-            var req = new
+            try
             {
-                cmd = "match_user",
-                sid = userSid,
-                probe = Convert.ToBase64String(probeTemplate),
-                threshold = threshold
-            };
+                var req = new { cmd = "capture", timeoutMs = timeoutMs };
+                string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), timeoutMs + 3000);
+                var j = JObject.Parse(rspJson);
 
-            string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 5000);
-            var j = JObject.Parse(rspJson);
+                bool ok = j["ok"]?.Value<bool>() == true;
+                if (!ok)
+                {
+                    string err = j["errorMsg"]?.Value<string>() ?? "Capture failed in service";
+                    return (false, null, 0, 0, err);
+                }
 
-            bool ok = j["ok"]?.Value<bool>() == true;
-            bool accessGranted = j["accessGranted"]?.Value<bool>() == true;
-            int score = j["score"]?.Value<int>() ?? 0;
-            string? label = j["label"]?.Value<string>();
+                string? isoB64 = j["isoTemplate"]?.Value<string>() ?? j["template"]?.Value<string>();
+                if (string.IsNullOrEmpty(isoB64))
+                {
+                    return (false, null, 0, 0, "No template returned in service response");
+                }
 
-            return (ok, accessGranted, score, label);
+                byte[] isoBytes = Convert.FromBase64String(isoB64!);
+                int q = j["quality"]?.Value<int>() ?? 0;
+                int nfiq = j["nfiq"]?.Value<int>() ?? 0;
+
+                return (true, isoBytes, q, nfiq, null);
+            }
+            catch (Exception ex)
+            {
+                return (false, null, 0, 0, $"Service communication error: {ex.Message}");
+            }
         }
 
-        public static (bool ok, bool matched, string? userSid, int score) IdentifyUserViaService(byte[] probeTemplate, int threshold = 1400)
+        public static (bool ok, bool accessGranted, int score, string? label, string? errorMsg) MatchUserViaService(string userSid, byte[] probeTemplate, int threshold = 1400)
         {
-            var req = new
+            try
             {
-                cmd = "identify_user",
-                probe = Convert.ToBase64String(probeTemplate),
-                threshold = threshold
-            };
+                var req = new
+                {
+                    cmd = "match_user",
+                    sid = userSid,
+                    probe = Convert.ToBase64String(probeTemplate),
+                    threshold = threshold
+                };
 
-            string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 8000);
-            var j = JObject.Parse(rspJson);
+                string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 8000);
+                var j = JObject.Parse(rspJson);
 
-            bool ok = j["ok"]?.Value<bool>() == true;
-            bool matched = j["matched"]?.Value<bool>() == true;
-            string? sid = j["userSid"]?.Value<string>();
-            int score = j["score"]?.Value<int>() ?? 0;
+                bool ok = j["ok"]?.Value<bool>() == true;
+                bool accessGranted = j["accessGranted"]?.Value<bool>() == true;
+                int score = j["score"]?.Value<int>() ?? 0;
+                string? label = j["label"]?.Value<string>();
+                string? errorMsg = j["errorMsg"]?.Value<string>();
 
-            return (ok, matched, sid, score);
+                return (ok, accessGranted, score, label, errorMsg);
+            }
+            catch (Exception ex)
+            {
+                return (false, false, 0, null, $"Service error: {ex.Message}");
+            }
+        }
+
+        public static (bool ok, bool matched, string? userSid, int score, string? errorMsg) IdentifyUserViaService(byte[] probeTemplate, int threshold = 1400)
+        {
+            try
+            {
+                var req = new
+                {
+                    cmd = "identify_user",
+                    probe = Convert.ToBase64String(probeTemplate),
+                    threshold = threshold
+                };
+
+                string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 10000);
+                var j = JObject.Parse(rspJson);
+
+                bool ok = j["ok"]?.Value<bool>() == true;
+                bool matched = j["matched"]?.Value<bool>() == true;
+                string? sid = j["userSid"]?.Value<string>();
+                int score = j["score"]?.Value<int>() ?? 0;
+                string? errorMsg = j["errorMsg"]?.Value<string>();
+
+                return (ok, matched, sid, score, errorMsg);
+            }
+            catch (Exception ex)
+            {
+                return (false, false, null, 0, $"Service error: {ex.Message}");
+            }
         }
 
         public static string GetTemplateFilePath(string userSid) =>

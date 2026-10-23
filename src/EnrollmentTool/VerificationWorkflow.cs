@@ -41,7 +41,7 @@ namespace MFS100Enroll
             if (TemplateManager.IsServiceAvailable())
             {
                 Console.WriteLine("  [Broker: Matching via Privileged Service over Named Pipe]");
-                var (ok, accessGranted, score, label) = TemplateManager.MatchUserViaService(account.Sid, cr.IsoTemplate, MatchThreshold);
+                var (ok, accessGranted, score, label, errorMsg) = TemplateManager.MatchUserViaService(account.Sid, cr.IsoTemplate, MatchThreshold);
                 if (ok)
                 {
                     Console.WriteLine();
@@ -66,6 +66,10 @@ namespace MFS100Enroll
                         Console.WriteLine("==================================================");
                         return false;
                     }
+                }
+                else
+                {
+                    Console.WriteLine($"  [WARN] Service broker matching error: {errorMsg}");
                 }
             }
 
@@ -143,7 +147,7 @@ namespace MFS100Enroll
             if (TemplateManager.IsServiceAvailable())
             {
                 Console.WriteLine("  [Broker: 1:N Identification via Privileged Service over Named Pipe]");
-                var (ok, matched, userSid, score) = TemplateManager.IdentifyUserViaService(cr.IsoTemplate, MatchThreshold);
+                var (ok, matched, userSid, score, errorMsg) = TemplateManager.IdentifyUserViaService(cr.IsoTemplate, MatchThreshold);
                 if (ok)
                 {
                     Console.WriteLine();
@@ -167,6 +171,10 @@ namespace MFS100Enroll
                         Console.WriteLine("==================================================");
                         return false;
                     }
+                }
+                else
+                {
+                    Console.WriteLine($"  [WARN] Service broker matching error: {errorMsg}");
                 }
             }
 
