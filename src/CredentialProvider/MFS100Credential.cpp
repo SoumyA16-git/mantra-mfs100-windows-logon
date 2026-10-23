@@ -158,14 +158,15 @@ HRESULT MFS100Credential::GetFieldState(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD
 {
     if (pcpfs == NULL || pcpfis == NULL) return E_POINTER;
 
+    LogDebug(L"[MFS100Credential] GetFieldState called for FieldID=%d", dwIndex);
     switch (dwIndex)
     {
     case FID_LOGO:
-    case FID_LARGE_TEXT:
         *pcpfs = CPFS_DISPLAY_IN_BOTH;
         *pcpfis = CPFIS_NONE;
         return S_OK;
 
+    case FID_LARGE_TEXT:
     case FID_SMALL_TEXT:
     case FID_USERNAME:
     case FID_SUBMIT:
@@ -287,12 +288,14 @@ static HBITMAP CreateBiometricTileBitmap()
 
 HRESULT MFS100Credential::GetBitmapValue(DWORD dwIndex, HBITMAP* phbmp)
 {
+    LogDebug(L"[MFS100Credential] GetBitmapValue called for FieldID=%d", dwIndex);
     if (phbmp == NULL) return E_POINTER;
     *phbmp = NULL;
 
     if (dwIndex == FID_LOGO)
     {
         *phbmp = CreateBiometricTileBitmap();
+        LogDebug(L"[MFS100Credential] GetBitmapValue created bitmap handle: 0x%p", *phbmp);
         if (*phbmp != NULL) return S_OK;
     }
     return E_NOTIMPL;

@@ -119,11 +119,13 @@ HRESULT MFS100Provider::GetFieldDescriptorCount(DWORD* pdwCount)
 {
     if (pdwCount == NULL) return E_POINTER;
     *pdwCount = ARRAYSIZE(s_rgFieldDescriptors);
+    LogDebug(L"[MFS100Provider] GetFieldDescriptorCount: %d", *pdwCount);
     return S_OK;
 }
 
 HRESULT MFS100Provider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR** ppcpfd)
 {
+    LogDebug(L"[MFS100Provider] GetFieldDescriptorAt called for index %d", dwIndex);
     if (ppcpfd == NULL) return E_POINTER;
     if (dwIndex >= ARRAYSIZE(s_rgFieldDescriptors)) return E_INVALIDARG;
 
@@ -164,15 +166,16 @@ HRESULT MFS100Provider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, B
     }
 
     *pdwCount = (DWORD)_credentials.size();
-    *pdwDefault = 0;
+    *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
     *pbAutoLogonWithDefault = FALSE;
 
-    LogDebug(L"[MFS100Provider] GetCredentialCount: %d", *pdwCount);
+    LogDebug(L"[MFS100Provider] GetCredentialCount: %d, pdwDefault: CREDENTIAL_PROVIDER_NO_DEFAULT", *pdwCount);
     return S_OK;
 }
 
 HRESULT MFS100Provider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential** ppcpc)
 {
+    LogDebug(L"[MFS100Provider] GetCredentialAt called for index %d (total: %d)", dwIndex, _credentials.size());
     if (ppcpc == NULL) return E_POINTER;
     if (dwIndex >= _credentials.size() || _credentials[dwIndex] == NULL) return E_INVALIDARG;
 
