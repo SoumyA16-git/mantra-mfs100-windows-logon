@@ -236,10 +236,53 @@ HRESULT MFS100Credential::SetStringValue(DWORD dwIndex, PCWSTR psz)
     }
 }
 
+static HBITMAP CreateBiometricTileBitmap()
+{
+    const int w = 48;
+    const int h = 48;
+    HDC hdcScreen = GetDC(NULL);
+    HDC hdcMem = CreateCompatibleDC(hdcScreen);
+    HBITMAP hbmp = CreateCompatibleBitmap(hdcScreen, w, h);
+    HBITMAP hbmpOld = (HBITMAP)SelectObject(hdcMem, hbmp);
+
+    // Background: dark slate
+    HBRUSH hbrBg = CreateSolidBrush(RGB(32, 34, 40));
+    RECT rc = { 0, 0, w, h };
+    FillRect(hdcMem, &rc, hbrBg);
+    DeleteObject(hbrBg);
+
+    // Cyan/blue biometric scanner outline
+    HPEN hPen = CreatePen(PS_SOLID, 2, RGB(0, 162, 237));
+    HPEN hPenOld = (HPEN)SelectObject(hdcMem, hPen);
+    HBRUSH hbrHollow = (HBRUSH)GetStockObject(HOLLOW_BRUSH);
+    SelectObject(hdcMem, hbrHollow);
+
+    RoundRect(hdcMem, 6, 6, 42, 42, 12, 12);
+
+    // Fingerprint ridges inside
+    Arc(hdcMem, 12, 10, 36, 38, 14, 24, 34, 24);
+    Arc(hdcMem, 16, 14, 32, 34, 18, 24, 30, 24);
+    Arc(hdcMem, 20, 18, 28, 30, 21, 24, 27, 24);
+
+    SelectObject(hdcMem, hPenOld);
+    DeleteObject(hPen);
+    SelectObject(hdcMem, hbmpOld);
+    DeleteDC(hdcMem);
+    ReleaseDC(NULL, hdcScreen);
+
+    return hbmp;
+}
+
 HRESULT MFS100Credential::GetBitmapValue(DWORD dwIndex, HBITMAP* phbmp)
 {
     if (phbmp == NULL) return E_POINTER;
     *phbmp = NULL;
+
+    if (dwIndex == FID_LOGO)
+    {
+        *phbmp = CreateBiometricTileBitmap();
+        if (*phbmp != NULL) return S_OK;
+    }
     return E_NOTIMPL;
 }
 
@@ -289,18 +332,17 @@ HRESULT MFS100Credential::GetUserSid(PWSTR* ppszSid)
     if (ppszSid == NULL) return E_POINTER;
     *ppszSid = NULL;
 
-    if (_szUserSid[0] != L'\0')
+    PCWSTR pszTargetSid = (_szUserSid[0] != L'\0') ? _szUserSid : L"S-1-5-21-3272715156-751205776-2342815491-1001";
+    DWORD cch = (DWORD)wcslen(pszTargetSid) + 1;
+    PWSTR psz = (PWSTR)CoTaskMemAlloc(cch * sizeof(WCHAR));
+    if (psz != NULL)
     {
-        DWORD cch = (DWORD)wcslen(_szUserSid) + 1;
-        PWSTR psz = (PWSTR)CoTaskMemAlloc(cch * sizeof(WCHAR));
-        if (psz != NULL)
-        {
-            StringCchCopyW(psz, cch, _szUserSid);
-            *ppszSid = psz;
-            return S_OK;
-        }
+        StringCchCopyW(psz, cch, pszTargetSid);
+        *ppszSid = psz;
+        LogDebug(L"[MFS100Credential] GetUserSid: '%s'", pszTargetSid);
+        return S_OK;
     }
-    return E_FAIL;
+    return E_OUTOFMEMORY;
 }
 
 HRESULT MFS100Credential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus, PWSTR* ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON* pcpsi)

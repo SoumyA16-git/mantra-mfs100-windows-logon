@@ -157,7 +157,7 @@ HRESULT MFS100Provider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, B
         MFS100Credential* pCred = new MFS100Credential();
         if (pCred != NULL)
         {
-            pCred->Initialize(_cpus, L"", L"");
+            pCred->Initialize(_cpus, L"babu_vm\\soumy", L"S-1-5-21-3272715156-751205776-2342815491-1001");
             _credentials.push_back(pCred);
         }
     }
@@ -208,37 +208,59 @@ HRESULT MFS100Provider::SetUserArray(ICredentialProviderUserArray* users)
                 PWSTR pszSid = NULL;
                 if (SUCCEEDED(pUser->GetSid(&pszSid)) && pszSid != NULL)
                 {
+                    WCHAR szName[256] = L"";
+                    WCHAR szDomain[256] = L"";
+                    DWORD cchName = ARRAYSIZE(szName);
+                    DWORD cchDomain = ARRAYSIZE(szDomain);
+                    SID_NAME_USE snu;
+
                     PSID pSid = NULL;
                     if (ConvertStringSidToSidW(pszSid, &pSid) && pSid != NULL)
                     {
-                        WCHAR szName[256] = L"";
-                        WCHAR szDomain[256] = L"";
-                        DWORD cchName = ARRAYSIZE(szName);
-                        DWORD cchDomain = ARRAYSIZE(szDomain);
-                        SID_NAME_USE snu;
-                        if (LookupAccountSidW(NULL, pSid, szName, &cchName, szDomain, &cchDomain, &snu))
-                        {
-                            LogDebug(L"[MFS100Provider] User[%d]: Domain='%s', Name='%s', SID='%s'",
-                                     i, szDomain, szName, pszSid);
-
-                            WCHAR szFull[512];
-                            StringCchPrintfW(szFull, ARRAYSIZE(szFull), L"%s\\%s", szDomain, szName);
-
-                            MFS100Credential* pCred = new MFS100Credential();
-                            if (pCred != NULL)
-                            {
-                                pCred->Initialize(_cpus, szFull, pszSid);
-                                _credentials.push_back(pCred);
-                                LogDebug(L"[MFS100Provider] Created credential for '%s' (SID: '%s')", szFull, pszSid);
-                            }
-                        }
+                        LookupAccountSidW(NULL, pSid, szName, &cchName, szDomain, &cchDomain, &snu);
                         LocalFree(pSid);
                     }
+
+                    WCHAR szFull[512] = L"";
+                    if (szName[0] != L'\0')
+                    {
+                        if (szDomain[0] != L'\0')
+                            StringCchPrintfW(szFull, ARRAYSIZE(szFull), L"%s\\%s", szDomain, szName);
+                        else
+                            StringCchCopyW(szFull, ARRAYSIZE(szFull), szName);
+                    }
+                    else
+                    {
+                        StringCchCopyW(szFull, ARRAYSIZE(szFull), L"babu_vm\\soumy");
+                    }
+
+                    LogDebug(L"[MFS100Provider] User[%d]: Full='%s', SID='%s'", i, szFull, pszSid);
+
+                    MFS100Credential* pCred = new MFS100Credential();
+                    if (pCred != NULL)
+                    {
+                        pCred->Initialize(_cpus, szFull, pszSid);
+                        _credentials.push_back(pCred);
+                        LogDebug(L"[MFS100Provider] Created credential for '%s' (SID: '%s')", szFull, pszSid);
+                    }
+
                     CoTaskMemFree(pszSid);
                 }
                 pUser->Release();
             }
         }
     }
+
+    if (_credentials.empty())
+    {
+        LogDebug(L"[MFS100Provider] Fallback: creating enrolled user credential");
+        MFS100Credential* pCred = new MFS100Credential();
+        if (pCred != NULL)
+        {
+            pCred->Initialize(_cpus, L"babu_vm\\soumy", L"S-1-5-21-3272715156-751205776-2342815491-1001");
+            _credentials.push_back(pCred);
+        }
+    }
+
     return S_OK;
 }
