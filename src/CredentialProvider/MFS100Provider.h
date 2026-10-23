@@ -2,6 +2,8 @@
 #include "common.h"
 #include "MFS100Credential.h"
 
+#include <vector>
+
 class MFS100Provider : public ICredentialProvider,
                        public ICredentialProviderSetUserArray
 {
@@ -33,5 +35,5 @@ private:
     ICredentialProviderEvents* _pEvents;
     UINT_PTR _upAdviseContext;
 
-    MFS100Credential* _pCredential;
+    std::vector<MFS100Credential*> _credentials;
 };

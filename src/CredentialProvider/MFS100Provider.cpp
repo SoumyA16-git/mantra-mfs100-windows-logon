@@ -15,8 +15,7 @@ MFS100Provider::MFS100Provider() :
     _cRef(1),
     _cpus(CPUS_INVALID),
     _pEvents(NULL),
-    _upAdviseContext(0),
-    _pCredential(NULL)
+    _upAdviseContext(0)
 {
     LogDebug(L"[MFS100Provider] Constructor called.");
 }
@@ -24,11 +23,15 @@ MFS100Provider::MFS100Provider() :
 MFS100Provider::~MFS100Provider()
 {
     LogDebug(L"[MFS100Provider] Destructor called.");
-    if (_pCredential != NULL)
+    for (size_t i = 0; i < _credentials.size(); i++)
     {
-        _pCredential->Release();
-        _pCredential = NULL;
+        if (_credentials[i] != NULL)
+        {
+            _credentials[i]->Release();
+        }
     }
+    _credentials.clear();
+
     if (_pEvents != NULL)
     {
         _pEvents->Release();
@@ -148,16 +151,18 @@ HRESULT MFS100Provider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, B
     if (pdwCount == NULL || pdwDefault == NULL || pbAutoLogonWithDefault == NULL)
         return E_POINTER;
 
-    if (_pCredential == NULL)
+    // Fallback: if SetUserArray was not called or yielded no users, provide a default credential
+    if (_credentials.empty())
     {
-        _pCredential = new MFS100Credential();
-        if (_pCredential != NULL)
+        MFS100Credential* pCred = new MFS100Credential();
+        if (pCred != NULL)
         {
-            _pCredential->Initialize(_cpus, L"", L"");
+            pCred->Initialize(_cpus, L"", L"");
+            _credentials.push_back(pCred);
         }
     }
 
-    *pdwCount = (_pCredential != NULL) ? 1 : 0;
+    *pdwCount = (DWORD)_credentials.size();
     *pdwDefault = 0;
     *pbAutoLogonWithDefault = FALSE;
 
@@ -168,9 +173,9 @@ HRESULT MFS100Provider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, B
 HRESULT MFS100Provider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential** ppcpc)
 {
     if (ppcpc == NULL) return E_POINTER;
-    if (dwIndex != 0 || _pCredential == NULL) return E_INVALIDARG;
+    if (dwIndex >= _credentials.size() || _credentials[dwIndex] == NULL) return E_INVALIDARG;
 
-    *ppcpc = _pCredential;
+    *ppcpc = _credentials[dwIndex];
     (*ppcpc)->AddRef();
     return S_OK;
 }
@@ -178,6 +183,17 @@ HRESULT MFS100Provider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCreden
 HRESULT MFS100Provider::SetUserArray(ICredentialProviderUserArray* users)
 {
     LogDebug(L"[MFS100Provider] SetUserArray called.");
+
+    // Clean up previous credentials
+    for (size_t i = 0; i < _credentials.size(); i++)
+    {
+        if (_credentials[i] != NULL)
+        {
+            _credentials[i]->Release();
+        }
+    }
+    _credentials.clear();
+
     if (users != NULL)
     {
         DWORD dwCount = 0;
@@ -205,11 +221,15 @@ HRESULT MFS100Provider::SetUserArray(ICredentialProviderUserArray* users)
                             LogDebug(L"[MFS100Provider] User[%d]: Domain='%s', Name='%s', SID='%s'",
                                      i, szDomain, szName, pszSid);
 
-                            if (_pCredential != NULL)
+                            WCHAR szFull[512];
+                            StringCchPrintfW(szFull, ARRAYSIZE(szFull), L"%s\\%s", szDomain, szName);
+
+                            MFS100Credential* pCred = new MFS100Credential();
+                            if (pCred != NULL)
                             {
-                                WCHAR szFull[512];
-                                StringCchPrintfW(szFull, ARRAYSIZE(szFull), L"%s\\%s", szDomain, szName);
-                                _pCredential->Initialize(_cpus, szFull, pszSid);
+                                pCred->Initialize(_cpus, szFull, pszSid);
+                                _credentials.push_back(pCred);
+                                LogDebug(L"[MFS100Provider] Created credential for '%s' (SID: '%s')", szFull, pszSid);
                             }
                         }
                         LocalFree(pSid);

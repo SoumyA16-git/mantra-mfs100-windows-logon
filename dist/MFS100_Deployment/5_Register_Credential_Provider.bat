@@ -24,15 +24,21 @@ reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credentia
 :: 3. Run regsvr32
 regsvr32.exe /s "C:\Program Files\MFS100\MFS100CP.dll"
 
+:: 4. Disable Windows Hello PIN exclusive restriction so Windows 11 displays "Sign-in options"
+reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device" /v "DevicePasswordLessBuildVersion" /t REG_DWORD /d 0 /f >nul 2>&1
+
+:: 5. Refresh LogonUI so the new tile is immediately loaded
+taskkill /f /im LogonUI.exe >nul 2>&1
+
 echo.
 echo ==================================================
 echo [SUCCESS] MFS100 Credential Provider Registered!
 echo ==================================================
 echo.
 echo Next steps:
-echo 1. If LogonUI is already active, restart the VM or press
-echo    Ctrl+Alt+Del to refresh the sign-in providers.
-echo 2. On the logon screen, click "Sign-in options"
-echo    to select the Mantra MFS100 Fingerprint tile!
+echo 1. Press Win + L to lock the screen.
+echo 2. Click "Sign-in options" under your account.
+echo 3. Click the Mantra MFS100 Biometric Login tile.
+echo 4. Touch the Mantra scanner to log in!
 echo.
 pause
