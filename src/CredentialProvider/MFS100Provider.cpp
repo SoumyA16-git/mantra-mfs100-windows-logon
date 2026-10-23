@@ -1,4 +1,5 @@
 #include "MFS100Provider.h"
+#include <sddl.h>
 
 static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgFieldDescriptors[] =
 {
@@ -41,6 +42,7 @@ HRESULT MFS100Provider::QueryInterface(REFIID riid, void** ppv)
     static const QITAB qit[] =
     {
         QITABENT(MFS100Provider, ICredentialProvider),
+        QITABENT(MFS100Provider, ICredentialProviderSetUserArray),
         { 0 }
     };
     return QISearch(this, qit, riid, ppv);
@@ -170,5 +172,53 @@ HRESULT MFS100Provider::GetCredentialAt(DWORD dwIndex, ICredentialProviderCreden
 
     *ppcpc = _pCredential;
     (*ppcpc)->AddRef();
+    return S_OK;
+}
+
+HRESULT MFS100Provider::SetUserArray(ICredentialProviderUserArray* users)
+{
+    LogDebug(L"[MFS100Provider] SetUserArray called.");
+    if (users != NULL)
+    {
+        DWORD dwCount = 0;
+        users->GetCount(&dwCount);
+        LogDebug(L"[MFS100Provider] SetUserArray user count: %d", dwCount);
+
+        for (DWORD i = 0; i < dwCount; i++)
+        {
+            ICredentialProviderUser* pUser = NULL;
+            if (SUCCEEDED(users->GetAt(i, &pUser)) && pUser != NULL)
+            {
+                PWSTR pszSid = NULL;
+                if (SUCCEEDED(pUser->GetSid(&pszSid)) && pszSid != NULL)
+                {
+                    PSID pSid = NULL;
+                    if (ConvertStringSidToSidW(pszSid, &pSid) && pSid != NULL)
+                    {
+                        WCHAR szName[256] = L"";
+                        WCHAR szDomain[256] = L"";
+                        DWORD cchName = ARRAYSIZE(szName);
+                        DWORD cchDomain = ARRAYSIZE(szDomain);
+                        SID_NAME_USE snu;
+                        if (LookupAccountSidW(NULL, pSid, szName, &cchName, szDomain, &cchDomain, &snu))
+                        {
+                            LogDebug(L"[MFS100Provider] User[%d]: Domain='%s', Name='%s', SID='%s'",
+                                     i, szDomain, szName, pszSid);
+
+                            if (_pCredential != NULL)
+                            {
+                                WCHAR szFull[512];
+                                StringCchPrintfW(szFull, ARRAYSIZE(szFull), L"%s\\%s", szDomain, szName);
+                                _pCredential->Initialize(_cpus, szFull, pszSid);
+                            }
+                        }
+                        LocalFree(pSid);
+                    }
+                    CoTaskMemFree(pszSid);
+                }
+                pUser->Release();
+            }
+        }
+    }
     return S_OK;
 }

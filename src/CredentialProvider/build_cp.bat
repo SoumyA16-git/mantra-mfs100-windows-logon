@@ -8,9 +8,9 @@ if errorlevel 1 (
 )
 
 cd /d "%~dp0"
-echo Compiling MFS100CP.dll (x64 Native Credential Provider)...
+echo Compiling MFS100CP.dll (x64 Native Credential Provider - Static CRT /MT)...
 
-cl.exe /nologo /O2 /W3 /D_UNICODE /DUNICODE /DWIN32 /D_WINDOWS /D_USRDLL /DMFS100CP_EXPORTS /EHsc /MD ^
+cl.exe /nologo /O2 /W3 /D_UNICODE /DUNICODE /DWIN32 /D_WINDOWS /D_USRDLL /DMFS100CP_EXPORTS /EHsc /MT ^
     /I. ^
     Dll.cpp MFS100Provider.cpp MFS100Credential.cpp ^
     /link /DLL /DEF:MFS100CP.def /OUT:MFS100CP.dll ^
@@ -23,7 +23,7 @@ if errorlevel 1 (
 
 echo.
 echo ==================================================
-echo [SUCCESS] MFS100CP.dll (x64) compiled successfully!
+echo [SUCCESS] MFS100CP.dll (x64 Static CRT) compiled!
 echo ==================================================
 echo Copying to dist\MFS100_Deployment...
 copy /y MFS100CP.dll "..\..\dist\MFS100_Deployment\MFS100CP.dll"

@@ -2,7 +2,8 @@
 #include "common.h"
 #include "MFS100Credential.h"
 
-class MFS100Provider : public ICredentialProvider
+class MFS100Provider : public ICredentialProvider,
+                       public ICredentialProviderSetUserArray
 {
 public:
     // IUnknown
@@ -19,6 +20,9 @@ public:
     IFACEMETHODIMP GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR** ppcpfd);
     IFACEMETHODIMP GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, BOOL* pbAutoLogonWithDefault);
     IFACEMETHODIMP GetCredentialAt(DWORD dwIndex, ICredentialProviderCredential** ppcpc);
+
+    // ICredentialProviderSetUserArray (Windows 8, 10, 11)
+    IFACEMETHODIMP SetUserArray(ICredentialProviderUserArray* users);
 
     MFS100Provider();
 
