@@ -111,6 +111,7 @@ namespace MFS100Worker
         {
             if (_initialized && _mfs != null)
             {
+                try { _mfs.StopCapture(); } catch { }
                 try { _mfs.Uninit(); }
                 catch (Exception ex) { WorkerLog.Warn($"Uninit exception: {ex.Message}"); }
                 _initialized = false;

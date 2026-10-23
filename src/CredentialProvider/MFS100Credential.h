@@ -57,6 +57,10 @@ private:
 
     HANDLE _hBiometricThread;
     HANDLE _hStopEvent;
+    HANDLE _hActivePipe;
+
+    void StartBiometricListener();
+    void StopBiometricListener();
 
     static DWORD WINAPI BiometricThreadProc(LPVOID lpParam);
     void RunBiometricListener();

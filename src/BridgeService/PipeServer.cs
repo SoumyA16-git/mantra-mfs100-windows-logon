@@ -187,8 +187,12 @@ namespace MFS100BridgeSvc
                 {
                     ServiceLog.Warn($"Pipe client error / disconnect: {ex.Message}");
                 }
+                finally
+                {
+                    ServiceLog.Info("Client disconnected from named pipe. Resetting worker to ensure LED is OFF.");
+                    _workerHost.KillAndRestart();
+                }
             }
-            ServiceLog.Info("Client disconnected from named pipe.");
         }
 
         private async Task<string> ProcessRequestAsync(string requestJson, string callerSid, bool callerIsAdmin)

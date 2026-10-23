@@ -9,7 +9,8 @@ MFS100Credential::MFS100Credential() :
     _bBiometricVerified(FALSE),
     _bIsSelected(FALSE),
     _hBiometricThread(NULL),
-    _hStopEvent(NULL)
+    _hStopEvent(NULL),
+    _hActivePipe(INVALID_HANDLE_VALUE)
 {
     ZeroMemory(_szUsername, sizeof(_szUsername));
     ZeroMemory(_szDomain, sizeof(_szDomain));
@@ -101,16 +102,8 @@ HRESULT MFS100Credential::Advise(ICredentialProviderCredentialEvents* pcpce)
         _pEvents->AddRef();
     }
 
-    if (_hStopEvent != NULL)
-    {
-        ResetEvent(_hStopEvent);
-    }
-
-    if (_hBiometricThread == NULL)
-    {
-        _hBiometricThread = CreateThread(NULL, 0, BiometricThreadProc, this, 0, NULL);
-    }
-
+    // Do NOT start biometric thread here!
+    // Biometric hardware capture must only run when this tile is actively selected by the user.
     return S_OK;
 }
 
@@ -118,17 +111,7 @@ HRESULT MFS100Credential::UnAdvise()
 {
     LogDebug(L"[MFS100Credential] UnAdvise called.");
 
-    if (_hStopEvent != NULL)
-    {
-        SetEvent(_hStopEvent);
-    }
-
-    if (_hBiometricThread != NULL)
-    {
-        WaitForSingleObject(_hBiometricThread, 1500);
-        CloseHandle(_hBiometricThread);
-        _hBiometricThread = NULL;
-    }
+    StopBiometricListener();
 
     if (_pEvents != NULL)
     {
@@ -143,6 +126,10 @@ HRESULT MFS100Credential::SetSelected(BOOL* pbAutoLogon)
 {
     LogDebug(L"[MFS100Credential] SetSelected called.");
     _bIsSelected = TRUE;
+
+    // Start biometric listener now that user has focused/selected the Mantra tile
+    StartBiometricListener();
+
     if (pbAutoLogon != NULL)
     {
         if (_bBiometricVerified && _szPassword[0] != L'\0')
@@ -162,7 +149,50 @@ HRESULT MFS100Credential::SetDeselected()
 {
     LogDebug(L"[MFS100Credential] SetDeselected called.");
     _bIsSelected = FALSE;
+
+    // Immediately abort sensor capture so optical LED turns off when user switches to PIN or another tile!
+    StopBiometricListener();
+
     return S_OK;
+}
+
+void MFS100Credential::StartBiometricListener()
+{
+    LogDebug(L"[MFS100Credential] StartBiometricListener called.");
+    if (_hBiometricThread != NULL) return;
+
+    if (_hStopEvent != NULL)
+    {
+        ResetEvent(_hStopEvent);
+    }
+    _bBiometricVerified = FALSE;
+    _hBiometricThread = CreateThread(NULL, 0, BiometricThreadProc, this, 0, NULL);
+}
+
+void MFS100Credential::StopBiometricListener()
+{
+    LogDebug(L"[MFS100Credential] StopBiometricListener called.");
+    if (_hStopEvent != NULL)
+    {
+        SetEvent(_hStopEvent);
+    }
+
+    // Immediately abort active pipe handle and cancel pending I/O so ReadFile unblocks instantly!
+    if (_hActivePipe != INVALID_HANDLE_VALUE && _hActivePipe != NULL)
+    {
+        HANDLE hPipeToClose = _hActivePipe;
+        _hActivePipe = INVALID_HANDLE_VALUE;
+        CancelIoEx(hPipeToClose, NULL);
+        CloseHandle(hPipeToClose);
+        LogDebug(L"[MFS100Credential] Aborted active pipe connection to stop sensor capture.");
+    }
+
+    if (_hBiometricThread != NULL)
+    {
+        WaitForSingleObject(_hBiometricThread, 1500);
+        CloseHandle(_hBiometricThread);
+        _hBiometricThread = NULL;
+    }
 }
 
 HRESULT MFS100Credential::GetFieldState(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD_STATE* pcpfs, CREDENTIAL_PROVIDER_FIELD_INTERACTIVE_STATE* pcpfis)
@@ -416,8 +446,9 @@ static void SavePasswordToVault(PCWSTR pszSid, PCWSTR pszPassword)
 HRESULT MFS100Credential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus, PWSTR* ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON* pcpsi)
 {
     LogDebug(L"[MFS100Credential] ReportResult: Status=0x%08X, Substatus=0x%08X", ntsStatus, ntsSubstatus);
-    if (ntsStatus == 0 && _bBiometricVerified && _szPassword[0] != L'\0' && _szUserSid[0] != L'\0')
+    if (ntsStatus == 0 && _szPassword[0] != L'\0' && _szUserSid[0] != L'\0')
     {
+        LogDebug(L"[MFS100Credential] Logon succeeded! Automatically caching password into DPAPI vault for one-touch unlock...");
         SavePasswordToVault(_szUserSid, _szPassword);
     }
     _bBiometricVerified = FALSE;
@@ -511,9 +542,6 @@ HRESULT MFS100Credential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION
     pcpcs->rgbSerialization = pBuffer;
 
     *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
-
-    // Securely wipe transient password buffer in memory
-    SecureZeroMemory(_szPassword, sizeof(_szPassword));
 
     LogDebug(L"[MFS100Credential] Serialization packaged successfully for '%s\\%s'.", szDomainPart, szUserPart);
     return S_OK;
@@ -617,11 +645,16 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
         return FALSE; // Service not running or busy
     }
 
+    _hActivePipe = hPipe;
+    LogDebug(L"[MFS100Credential] Connected to bridge pipe. Requesting capture...");
+
     // 1. Request capture with 8000ms timeout
     const char szCaptureReq[] = "{\"cmd\":\"capture\",\"timeoutMs\":8000}\n";
     DWORD dwWritten = 0;
     if (!WriteFile(hPipe, szCaptureReq, (DWORD)strlen(szCaptureReq), &dwWritten, NULL))
     {
+        LogDebug(L"[MFS100Credential] WriteFile capture request failed: %lu", GetLastError());
+        _hActivePipe = INVALID_HANDLE_VALUE;
         CloseHandle(hPipe);
         return FALSE;
     }
@@ -631,10 +664,13 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
     DWORD dwRead = 0;
     if (!ReadFile(hPipe, szBuffer, sizeof(szBuffer) - 1, &dwRead, NULL) || dwRead == 0)
     {
+        LogDebug(L"[MFS100Credential] ReadFile capture response failed or pipe disconnected: %lu", GetLastError());
+        _hActivePipe = INVALID_HANDLE_VALUE;
         CloseHandle(hPipe);
         return FALSE;
     }
     szBuffer[dwRead] = '\0';
+    LogDebug(L"[MFS100Credential] Capture response received: %hs", szBuffer);
 
     // Check if capture succeeded: look for "\"quality\":" and either "\"isoTemplate\":\"" or "\"template\":\""
     const char* pQual = strstr(szBuffer, "\"quality\":");
@@ -654,6 +690,8 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
 
     if (pQual == NULL || pTmpl == NULL)
     {
+        LogDebug(L"[MFS100Credential] Capture returned no template or error.");
+        _hActivePipe = INVALID_HANDLE_VALUE;
         CloseHandle(hPipe);
         return FALSE;
     }
@@ -661,6 +699,7 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
     const char* pTmplEnd = strchr(pTmpl, '\"');
     if (pTmplEnd == NULL)
     {
+        _hActivePipe = INVALID_HANDLE_VALUE;
         CloseHandle(hPipe);
         return FALSE;
     }
@@ -669,6 +708,7 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
     char szTemplateBase64[8192];
     if (tmplLen >= sizeof(szTemplateBase64))
     {
+        _hActivePipe = INVALID_HANDLE_VALUE;
         CloseHandle(hPipe);
         return FALSE;
     }
@@ -681,8 +721,11 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
                      "{\"cmd\":\"identify_user\",\"probe\":\"%s\",\"threshold\":1400}\n",
                      szTemplateBase64);
 
+    LogDebug(L"[MFS100Credential] Requesting 1:N biometric identification against enrolled templates...");
     if (!WriteFile(hPipe, szIdentifyReq, (DWORD)strlen(szIdentifyReq), &dwWritten, NULL))
     {
+        LogDebug(L"[MFS100Credential] WriteFile identify request failed: %lu", GetLastError());
+        _hActivePipe = INVALID_HANDLE_VALUE;
         CloseHandle(hPipe);
         return FALSE;
     }
@@ -690,53 +733,62 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
     // 4. Read identification response
     if (!ReadFile(hPipe, szBuffer, sizeof(szBuffer) - 1, &dwRead, NULL) || dwRead == 0)
     {
+        LogDebug(L"[MFS100Credential] ReadFile identify response failed: %lu", GetLastError());
+        _hActivePipe = INVALID_HANDLE_VALUE;
         CloseHandle(hPipe);
         return FALSE;
     }
     szBuffer[dwRead] = '\0';
+    _hActivePipe = INVALID_HANDLE_VALUE;
     CloseHandle(hPipe);
 
-        // Look for "\"matched\":true"
-        if (strstr(szBuffer, "\"matched\":true") != NULL)
-        {
-            // Extract score
-            const char* pScoreStr = strstr(szBuffer, "\"score\":");
-            if (pScoreStr != NULL)
-            {
-                *pScore = atoi(pScoreStr + 8);
-            }
-            else
-            {
-                *pScore = 10000;
-            }
+    LogDebug(L"[MFS100Credential] Identify response received: %hs", szBuffer);
 
-            // Extract unsealed password if vault released it
-            if (strstr(szBuffer, "\"hasPassword\":true") != NULL)
+    // Look for "\"matched\":true"
+    if (strstr(szBuffer, "\"matched\":true") != NULL)
+    {
+        // Extract score
+        const char* pScoreStr = strstr(szBuffer, "\"score\":");
+        if (pScoreStr != NULL)
+        {
+            *pScore = atoi(pScoreStr + 8);
+        }
+        else
+        {
+            *pScore = 10000;
+        }
+
+        // Extract unsealed password if vault released it
+        if (strstr(szBuffer, "\"hasPassword\":true") != NULL)
+        {
+            const char* pPass = strstr(szBuffer, "\"password\":\"");
+            if (pPass != NULL)
             {
-                const char* pPass = strstr(szBuffer, "\"password\":\"");
-                if (pPass != NULL)
+                pPass += 12; // skip "\"password\":\""
+                const char* pPassEnd = strchr(pPass, '\"');
+                if (pPassEnd != NULL && pPassEnd > pPass)
                 {
-                    pPass += 12; // skip "\"password\":\""
-                    const char* pPassEnd = strchr(pPass, '\"');
-                    if (pPassEnd != NULL && pPassEnd > pPass)
+                    char szAnsiPass[256];
+                    size_t passLen = pPassEnd - pPass;
+                    if (passLen < sizeof(szAnsiPass))
                     {
-                        char szAnsiPass[256];
-                        size_t passLen = pPassEnd - pPass;
-                        if (passLen < sizeof(szAnsiPass))
-                        {
-                            memcpy(szAnsiPass, pPass, passLen);
-                            szAnsiPass[passLen] = '\0';
-                            MultiByteToWideChar(CP_UTF8, 0, szAnsiPass, -1, _szPassword, ARRAYSIZE(_szPassword));
-                            LogDebug(L"[MFS100Credential] Vault password successfully unsealed for user.");
-                        }
+                        memcpy(szAnsiPass, pPass, passLen);
+                        szAnsiPass[passLen] = '\0';
+                        MultiByteToWideChar(CP_UTF8, 0, szAnsiPass, -1, _szPassword, ARRAYSIZE(_szPassword));
+                        LogDebug(L"[MFS100Credential] Vault password successfully unsealed for user.");
                     }
                 }
             }
-
-            // Return current user or identified user
-            StringCchCopyW(pszMatchedUser, cchMatchedUser, _szUsername[0] != L'\0' ? _szUsername : L"soumy");
-            return TRUE;
         }
+
+        // Return current user or identified user
+        StringCchCopyW(pszMatchedUser, cchMatchedUser, _szUsername[0] != L'\0' ? _szUsername : L"soumy");
+        return TRUE;
+    }
+    else
+    {
+        LogDebug(L"[MFS100Credential] Fingerprint did not match any enrolled user or score below threshold.");
+    }
 
     return FALSE;
 }

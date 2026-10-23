@@ -199,9 +199,9 @@ HRESULT MFS100Provider::GetCredentialCount(DWORD* pdwCount, DWORD* pdwDefault, B
     }
     else
     {
-        *pdwDefault = CREDENTIAL_PROVIDER_NO_DEFAULT;
+        *pdwDefault = 0; // Default to the Mantra MFS100 biometric tile on lock/logon screen
         *pbAutoLogonWithDefault = FALSE;
-        LogDebug(L"[MFS100Provider] GetCredentialCount: %d, pdwDefault: CREDENTIAL_PROVIDER_NO_DEFAULT", *pdwCount);
+        LogDebug(L"[MFS100Provider] GetCredentialCount: %d, pdwDefault: 0", *pdwCount);
     }
 
     return S_OK;
