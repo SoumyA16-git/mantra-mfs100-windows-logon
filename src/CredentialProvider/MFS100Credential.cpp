@@ -209,6 +209,9 @@ HRESULT MFS100Credential::GetStringValue(DWORD dwIndex, PWSTR* ppsz)
 
     switch (dwIndex)
     {
+    case FID_LOGO:
+        pszSource = L"";
+        break;
     case FID_LARGE_TEXT:
         pszSource = L"Mantra MFS100 Biometric Login";
         break;
@@ -218,18 +221,27 @@ HRESULT MFS100Credential::GetStringValue(DWORD dwIndex, PWSTR* ppsz)
     case FID_USERNAME:
         pszSource = _szUsername;
         break;
+    case FID_PASSWORD:
+        pszSource = _szPassword;
+        break;
+    case FID_SUBMIT:
+        pszSource = L"Logon";
+        break;
     default:
-        return E_NOTIMPL;
+        pszSource = L"";
+        break;
     }
 
-    DWORD cch = (DWORD)wcslen(pszSource) + 1;
-    PWSTR pszAlloc = (PWSTR)CoTaskMemAlloc(cch * sizeof(WCHAR));
-    if (pszAlloc == NULL) return E_OUTOFMEMORY;
-
-    StringCchCopyW(pszAlloc, cch, pszSource);
-    *ppsz = pszAlloc;
-    LogDebug(L"[MFS100Credential] GetStringValue for FieldID=%d returned: '%s'", dwIndex, pszAlloc);
-    return S_OK;
+    HRESULT hr = SHStrDupW(pszSource, ppsz);
+    if (SUCCEEDED(hr))
+    {
+        LogDebug(L"[MFS100Credential] GetStringValue for FieldID=%d returned: '%s'", dwIndex, *ppsz);
+    }
+    else
+    {
+        LogDebug(L"[MFS100Credential] GetStringValue for FieldID=%d failed: 0x%08X", dwIndex, hr);
+    }
+    return hr;
 }
 
 HRESULT MFS100Credential::SetStringValue(DWORD dwIndex, PCWSTR psz)
@@ -248,7 +260,7 @@ HRESULT MFS100Credential::SetStringValue(DWORD dwIndex, PCWSTR psz)
         return S_OK;
 
     default:
-        return E_INVALIDARG;
+        return S_OK;
     }
 }
 
@@ -364,16 +376,9 @@ HRESULT MFS100Credential::GetUserSid(PWSTR* ppszSid)
     *ppszSid = NULL;
 
     PCWSTR pszTargetSid = (_szUserSid[0] != L'\0') ? _szUserSid : L"S-1-5-21-3272715156-751205776-2342815491-1001";
-    DWORD cch = (DWORD)wcslen(pszTargetSid) + 1;
-    PWSTR psz = (PWSTR)CoTaskMemAlloc(cch * sizeof(WCHAR));
-    if (psz != NULL)
-    {
-        StringCchCopyW(psz, cch, pszTargetSid);
-        *ppszSid = psz;
-        LogDebug(L"[MFS100Credential] GetUserSid: '%s'", pszTargetSid);
-        return S_OK;
-    }
-    return E_OUTOFMEMORY;
+    HRESULT hr = SHStrDupW(pszTargetSid, ppszSid);
+    LogDebug(L"[MFS100Credential] GetUserSid: '%s' (hr=0x%08X)", pszTargetSid, hr);
+    return hr;
 }
 
 HRESULT MFS100Credential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus, PWSTR* ppszOptionalStatusText, CREDENTIAL_PROVIDER_STATUS_ICON* pcpsi)

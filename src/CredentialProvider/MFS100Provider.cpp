@@ -8,7 +8,7 @@ static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgFieldDescriptors[] =
     { FID_SMALL_TEXT, CPFT_SMALL_TEXT,    (PWSTR)L"Biometric Status",     GUID_NULL },
     { FID_USERNAME,   CPFT_EDIT_TEXT,     (PWSTR)L"Username",             CPFG_LOGON_USERNAME },
     { FID_PASSWORD,   CPFT_PASSWORD_TEXT, (PWSTR)L"Password",             CPFG_LOGON_PASSWORD },
-    { FID_SUBMIT,     CPFT_SUBMIT_BUTTON, (PWSTR)L"Logon",                CPFG_STANDALONE_SUBMIT_BUTTON }
+    { FID_SUBMIT,     CPFT_SUBMIT_BUTTON, (PWSTR)L"Logon",                GUID_NULL }
 };
 
 MFS100Provider::MFS100Provider() :

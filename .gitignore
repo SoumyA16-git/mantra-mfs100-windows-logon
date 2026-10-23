@@ -5,6 +5,9 @@ x64/
 x86/
 [Bb]in/
 [Oo]bj/
+*.obj
+*.exp
+*.lib
 
 # Visual Studio / VS Code
 .vs/

@@ -27,3 +27,4 @@ echo [SUCCESS] MFS100CP.dll (x64 Static CRT) compiled!
 echo ==================================================
 echo Copying to dist\MFS100_Deployment...
 copy /y MFS100CP.dll "..\..\dist\MFS100_Deployment\MFS100CP.dll"
+del *.obj *.exp *.lib 2>nul
