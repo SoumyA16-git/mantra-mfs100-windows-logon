@@ -14,7 +14,7 @@ cl.exe /nologo /O2 /W3 /D_UNICODE /DUNICODE /DWIN32 /D_WINDOWS /D_USRDLL /DMFS10
     /I. ^
     Dll.cpp MFS100Provider.cpp MFS100Credential.cpp ^
     /link /DLL /DEF:MFS100CP.def /OUT:MFS100CP.dll ^
-    shlwapi.lib secur32.lib advapi32.lib ole32.lib user32.lib gdi32.lib
+    shlwapi.lib secur32.lib advapi32.lib ole32.lib user32.lib gdi32.lib credui.lib
 
 if errorlevel 1 (
     echo [ERROR] Compilation failed!

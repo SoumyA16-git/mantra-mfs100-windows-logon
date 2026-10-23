@@ -456,6 +456,64 @@ HRESULT MFS100Credential::ReportResult(NTSTATUS ntsStatus, NTSTATUS ntsSubstatus
     return S_OK;
 }
 
+static HRESULT ProtectPassword(PCWSTR pszPlain, PWSTR* ppszProtected)
+{
+    if (pszPlain == NULL || pszPlain[0] == L'\0') return E_INVALIDARG;
+
+    DWORD cchPlain = (DWORD)wcslen(pszPlain) + 1;
+    DWORD cchNeeded = 0;
+
+    // First call to determine required buffer size
+    CredProtectW(FALSE, (PWSTR)pszPlain, cchPlain, NULL, &cchNeeded, NULL);
+    if (cchNeeded == 0)
+    {
+        return HRESULT_FROM_WIN32(GetLastError());
+    }
+
+    PWSTR pszProtected = (PWSTR)CoTaskMemAlloc(cchNeeded * sizeof(WCHAR));
+    if (pszProtected == NULL) return E_OUTOFMEMORY;
+
+    if (!CredProtectW(FALSE, (PWSTR)pszPlain, cchPlain, pszProtected, &cchNeeded, NULL))
+    {
+        DWORD dwErr = GetLastError();
+        CoTaskMemFree(pszProtected);
+        return HRESULT_FROM_WIN32(dwErr);
+    }
+
+    *ppszProtected = pszProtected;
+    return S_OK;
+}
+
+static HRESULT RetrieveNegotiateAuthPackage(ULONG* pulAuthPackage)
+{
+    if (pulAuthPackage == NULL) return E_POINTER;
+
+    HANDLE hLsa = NULL;
+    NTSTATUS status = LsaConnectUntrusted(&hLsa);
+    if (status != 0)
+    {
+        LogDebug(L"[MFS100Credential] LsaConnectUntrusted failed: 0x%08X", status);
+        return HRESULT_FROM_WIN32(LsaNtStatusToWinError(status));
+    }
+
+    LSA_STRING pkgName;
+    pkgName.Buffer = (PCHAR)NEGOSSP_NAME_A;
+    pkgName.Length = (USHORT)strlen(pkgName.Buffer);
+    pkgName.MaximumLength = pkgName.Length + 1;
+
+    status = LsaLookupAuthenticationPackage(hLsa, &pkgName, pulAuthPackage);
+    LsaDeregisterLogonProcess(hLsa);
+
+    if (status != 0)
+    {
+        LogDebug(L"[MFS100Credential] LsaLookupAuthenticationPackage (Negotiate) failed: 0x%08X", status);
+        return HRESULT_FROM_WIN32(LsaNtStatusToWinError(status));
+    }
+
+    LogDebug(L"[MFS100Credential] Negotiate AuthPackage resolved: %lu", *pulAuthPackage);
+    return S_OK;
+}
+
 HRESULT MFS100Credential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION_RESPONSE* pcpgsr,
                                            CREDENTIAL_PROVIDER_CREDENTIAL_SERIALIZATION* pcpcs,
                                            PWSTR* ppszOptionalStatusText,
@@ -465,7 +523,7 @@ HRESULT MFS100Credential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION
 
     if (pcpgsr == NULL || pcpcs == NULL) return E_POINTER;
 
-    // Split username if domain\user or user@domain
+    // 1. Resolve domain and username parts
     WCHAR szDomainPart[256] = L".";
     WCHAR szUserPart[256] = L"";
 
@@ -480,70 +538,87 @@ HRESULT MFS100Credential::GetSerialization(CREDENTIAL_PROVIDER_GET_SERIALIZATION
         StringCchCopyW(szUserPart, ARRAYSIZE(szUserPart), _szUsername);
     }
 
-    // Connect to LSA to look up MSV1_0 authentication package
-    HANDLE hLsa = NULL;
-    NTSTATUS status = LsaConnectUntrusted(&hLsa);
-    if (status != 0)
+    // 2. Protect the password using CredProtectW
+    PWSTR pszProtectedPassword = NULL;
+    HRESULT hr = ProtectPassword(_szPassword, &pszProtectedPassword);
+    if (FAILED(hr))
     {
-        LogDebug(L"[MFS100Credential] LsaConnectUntrusted failed: 0x%08X", status);
-        return HRESULT_FROM_WIN32(LsaNtStatusToWinError(status));
+        LogDebug(L"[MFS100Credential] ProtectPassword failed: 0x%08X", hr);
+        return hr;
     }
 
-    LSA_STRING pkgName;
-    pkgName.Buffer = (PCHAR)"MSV1_0";
-    pkgName.Length = (USHORT)strlen(pkgName.Buffer);
-    pkgName.MaximumLength = pkgName.Length + 1;
-
+    // 3. Resolve Negotiate authentication package
     ULONG ulAuthPackage = 0;
-    status = LsaLookupAuthenticationPackage(hLsa, &pkgName, &ulAuthPackage);
-    LsaDeregisterLogonProcess(hLsa);
-
-    if (status != 0)
+    hr = RetrieveNegotiateAuthPackage(&ulAuthPackage);
+    if (FAILED(hr))
     {
-        LogDebug(L"[MFS100Credential] LsaLookupAuthenticationPackage failed: 0x%08X", status);
-        return HRESULT_FROM_WIN32(LsaNtStatusToWinError(status));
+        CoTaskMemFree(pszProtectedPassword);
+        return hr;
     }
 
+    // 4. Calculate total serialization size:
+    // Structure + Domain string + Username string + Protected password string
     DWORD cbDomain = (DWORD)(wcslen(szDomainPart) * sizeof(WCHAR));
-    DWORD cbUser = (DWORD)(wcslen(szUserPart) * sizeof(WCHAR));
-    DWORD cbPass = (DWORD)(wcslen(_szPassword) * sizeof(WCHAR));
+    DWORD cbUser   = (DWORD)(wcslen(szUserPart) * sizeof(WCHAR));
+    DWORD cbPass   = (DWORD)(wcslen(pszProtectedPassword) * sizeof(WCHAR));
 
-    DWORD cbTotal = sizeof(MSV1_0_INTERACTIVE_LOGON) + cbDomain + cbUser + cbPass;
-    BYTE* pBuffer = (BYTE*)CoTaskMemAlloc(cbTotal);
-    if (pBuffer == NULL) return E_OUTOFMEMORY;
+    DWORD cbTotal = sizeof(KERB_INTERACTIVE_UNLOCK_LOGON) + cbDomain + cbUser + cbPass;
+    KERB_INTERACTIVE_UNLOCK_LOGON* pLogon = (KERB_INTERACTIVE_UNLOCK_LOGON*)CoTaskMemAlloc(cbTotal);
+    if (pLogon == NULL)
+    {
+        CoTaskMemFree(pszProtectedPassword);
+        return E_OUTOFMEMORY;
+    }
 
-    ZeroMemory(pBuffer, cbTotal);
+    ZeroMemory(pLogon, cbTotal);
 
-    PMSV1_0_INTERACTIVE_LOGON pLogon = (PMSV1_0_INTERACTIVE_LOGON)pBuffer;
-    pLogon->MessageType = MsV1_0InteractiveLogon;
+    // MessageType based on usage scenario
+    if (_cpus == CPUS_UNLOCK_WORKSTATION || _cpus == CPUS_CREDUI)
+    {
+        pLogon->Logon.MessageType = KerbWorkstationUnlockLogon;
+    }
+    else
+    {
+        pLogon->Logon.MessageType = KerbInteractiveLogon;
+    }
 
-    BYTE* pData = pBuffer + sizeof(MSV1_0_INTERACTIVE_LOGON);
+    // Position pBuffer right after the KERB_INTERACTIVE_UNLOCK_LOGON structure
+    BYTE* pBuffer = (BYTE*)pLogon + sizeof(KERB_INTERACTIVE_UNLOCK_LOGON);
 
-    pLogon->LogonDomainName.Length = (USHORT)cbDomain;
-    pLogon->LogonDomainName.MaximumLength = (USHORT)cbDomain;
-    pLogon->LogonDomainName.Buffer = (PWSTR)pData;
-    memcpy(pData, szDomainPart, cbDomain);
-    pData += cbDomain;
+    // Domain (Offset relative to start of pLogon)
+    pLogon->Logon.LogonDomainName.Length = (USHORT)cbDomain;
+    pLogon->Logon.LogonDomainName.MaximumLength = (USHORT)cbDomain;
+    pLogon->Logon.LogonDomainName.Buffer = (PWSTR)(pBuffer - (BYTE*)pLogon);
+    memcpy(pBuffer, szDomainPart, cbDomain);
+    pBuffer += cbDomain;
 
-    pLogon->UserName.Length = (USHORT)cbUser;
-    pLogon->UserName.MaximumLength = (USHORT)cbUser;
-    pLogon->UserName.Buffer = (PWSTR)pData;
-    memcpy(pData, szUserPart, cbUser);
-    pData += cbUser;
+    // Username (Offset relative to start of pLogon)
+    pLogon->Logon.UserName.Length = (USHORT)cbUser;
+    pLogon->Logon.UserName.MaximumLength = (USHORT)cbUser;
+    pLogon->Logon.UserName.Buffer = (PWSTR)(pBuffer - (BYTE*)pLogon);
+    memcpy(pBuffer, szUserPart, cbUser);
+    pBuffer += cbUser;
 
-    pLogon->Password.Length = (USHORT)cbPass;
-    pLogon->Password.MaximumLength = (USHORT)cbPass;
-    pLogon->Password.Buffer = (PWSTR)pData;
-    memcpy(pData, _szPassword, cbPass);
+    // Protected Password (Offset relative to start of pLogon)
+    pLogon->Logon.Password.Length = (USHORT)cbPass;
+    pLogon->Logon.Password.MaximumLength = (USHORT)cbPass;
+    pLogon->Logon.Password.Buffer = (PWSTR)(pBuffer - (BYTE*)pLogon);
+    memcpy(pBuffer, pszProtectedPassword, cbPass);
 
+    // Clean up temporary protected password copy
+    SecureZeroMemory(pszProtectedPassword, cbPass);
+    CoTaskMemFree(pszProtectedPassword);
+
+    // 5. Fill output serialization structure
     pcpcs->clsidCredentialProvider = CLSID_MFS100CredentialProvider;
     pcpcs->ulAuthenticationPackage = ulAuthPackage;
     pcpcs->cbSerialization = cbTotal;
-    pcpcs->rgbSerialization = pBuffer;
+    pcpcs->rgbSerialization = (BYTE*)pLogon;
 
     *pcpgsr = CPGSR_RETURN_CREDENTIAL_FINISHED;
 
-    LogDebug(L"[MFS100Credential] Serialization packaged successfully for '%s\\%s'.", szDomainPart, szUserPart);
+    LogDebug(L"[MFS100Credential] Serialization packaged successfully for '%s\\%s' (Scenario=%d, TotalBytes=%lu).",
+             szDomainPart, szUserPart, _cpus, cbTotal);
     return S_OK;
 }
 

@@ -12,6 +12,7 @@
 #include <ntsecapi.h>
 #define SECURITY_WIN32
 #include <security.h>
+#include <wincred.h>
 
 #include "guid.h"
 
