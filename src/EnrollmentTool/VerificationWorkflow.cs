@@ -38,6 +38,37 @@ namespace MFS100Enroll
             Console.WriteLine($"Live scan captured: Quality = {cr.Quality}, NFIQ = {cr.Nfiq}, Size = {cr.IsoTemplate.Length} bytes");
             Console.WriteLine();
 
+            if (TemplateManager.IsServiceAvailable())
+            {
+                Console.WriteLine("  [Broker: Matching via Privileged Service over Named Pipe]");
+                var (ok, accessGranted, score, label) = TemplateManager.MatchUserViaService(account.Sid, cr.IsoTemplate, MatchThreshold);
+                if (ok)
+                {
+                    Console.WriteLine();
+                    if (accessGranted)
+                    {
+                        Console.WriteLine("==================================================");
+                        Console.WriteLine("  VERIFICATION RESULT: [MATCH SUCCESS]            ");
+                        Console.WriteLine($"  User:            {account.Caption}");
+                        Console.WriteLine($"  SID:             {account.Sid}");
+                        Console.WriteLine($"  Matched Finger:  {label ?? "Enrolled Finger"}");
+                        Console.WriteLine($"  Match Score:     {score} (Threshold: {MatchThreshold})");
+                        Console.WriteLine("==================================================");
+                        return true;
+                    }
+                    else
+                    {
+                        Console.WriteLine("==================================================");
+                        Console.WriteLine("  VERIFICATION RESULT: [ACCESS DENIED]            ");
+                        Console.WriteLine($"  Target User:     {account.Caption}");
+                        Console.WriteLine($"  Highest Score:   {score} (Threshold: {MatchThreshold})");
+                        Console.WriteLine("  Fingerprint did not match any enrolled template.");
+                        Console.WriteLine("==================================================");
+                        return false;
+                    }
+                }
+            }
+
             int bestScore = -1;
             EnrolledFinger? bestFinger = null;
 
@@ -108,6 +139,37 @@ namespace MFS100Enroll
 
             Console.WriteLine($"Live scan captured: Quality = {cr.Quality}, NFIQ = {cr.Nfiq}, Size = {cr.IsoTemplate.Length} bytes");
             Console.WriteLine();
+
+            if (TemplateManager.IsServiceAvailable())
+            {
+                Console.WriteLine("  [Broker: 1:N Identification via Privileged Service over Named Pipe]");
+                var (ok, matched, userSid, score) = TemplateManager.IdentifyUserViaService(cr.IsoTemplate, MatchThreshold);
+                if (ok)
+                {
+                    Console.WriteLine();
+                    if (matched && userSid != null)
+                    {
+                        var matchedAcc = AccountManager.FindAccount(userSid);
+                        Console.WriteLine("==================================================");
+                        Console.WriteLine("  IDENTIFICATION RESULT: [USER RECOGNIZED]        ");
+                        Console.WriteLine($"  Identified User: {matchedAcc?.Caption ?? userSid}");
+                        Console.WriteLine($"  SID:             {userSid}");
+                        Console.WriteLine($"  Match Score:     {score} (Threshold: {MatchThreshold})");
+                        Console.WriteLine("==================================================");
+                        return true;
+                    }
+                    else
+                    {
+                        Console.WriteLine("==================================================");
+                        Console.WriteLine("  IDENTIFICATION RESULT: [UNKNOWN USER / REJECT]  ");
+                        Console.WriteLine($"  Highest Score:   {score} (Threshold: {MatchThreshold})");
+                        Console.WriteLine("  Fingerprint does not match any enrolled user.");
+                        Console.WriteLine("==================================================");
+                        return false;
+                    }
+                }
+            }
+
             Console.WriteLine("--- Matching across all enrolled accounts ---");
 
             string? bestSid = null;

@@ -21,6 +21,10 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
   <!-- Native x86 DLLs must land beside the executable -->
   <ItemGroup>
     <None Include="..\..\sdk\MFS100Dll.dll">
@@ -37,10 +41,12 @@
     </None>
   </ItemGroup>
 
-  <!-- Share SdkManager and WorkerLog from Worker project -->
+  <!-- Share SdkManager and WorkerLog from Worker project, and EncryptedTemplateStore from BridgeService -->
   <ItemGroup>
     <Compile Include="..\Worker\SdkManager.cs" Link="SdkManager.cs" />
     <Compile Include="..\Worker\WorkerLog.cs" Link="WorkerLog.cs" />
+    <Compile Include="..\BridgeService\EncryptedTemplateStore.cs" Link="EncryptedTemplateStore.cs" />
+    <Compile Include="..\BridgeService\ServiceLog.cs" Link="ServiceLog.cs" />
   </ItemGroup>
 
 </Project>

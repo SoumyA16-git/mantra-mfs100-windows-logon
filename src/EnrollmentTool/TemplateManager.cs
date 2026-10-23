@@ -1,11 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
+using System.Threading.Tasks;
+using MFS100BridgeSvc;
 using MFS100Worker;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace MFS100Enroll
 {
@@ -29,191 +34,232 @@ namespace MFS100Enroll
         public List<EnrolledFinger> Fingers { get; set; } = new List<EnrolledFinger>();
     }
 
+    /// <summary>
+    /// Manages user biometric enrollments.
+    /// Under the Privileged Broker Architecture (AC 2.8), all operations default to the
+    /// Session-0 Bridge Service via named pipe (\\.\pipe\MFS100Bridge), ensuring standard users
+    /// have ZERO direct file access to encrypted templates.
+    /// In local elevated test mode, it interacts with EncryptedTemplateStore directly.
+    /// </summary>
     public static class TemplateManager
     {
-        private static readonly object _fileLock = new object();
+        public const string PipeName = "MFS100Bridge";
 
-        public static string GetTemplatesDirectory()
+        public static bool IsServiceAvailable()
         {
-            string dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "MFS100CP", "templates");
-            Directory.CreateDirectory(dir);
-            return dir;
+            try
+            {
+                string rsp = SendPipeCommand(JsonConvert.SerializeObject(new { cmd = "ping" }), 1000);
+                var j = JObject.Parse(rsp);
+                return j["ok"]?.Value<bool>() == true;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
-        public static string GetTemplateFilePath(string userSid)
+        public static string SendPipeCommand(string requestJson, int timeoutMs = 5000)
         {
-            if (string.IsNullOrWhiteSpace(userSid) || userSid.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                throw new ArgumentException("Invalid user SID format.", nameof(userSid));
+            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.None);
+            client.Connect(timeoutMs);
 
-            return Path.Combine(GetTemplatesDirectory(), $"{userSid}.dat");
+            using var reader = new StreamReader(client, new UTF8Encoding(false));
+            using var writer = new StreamWriter(client, new UTF8Encoding(false)) { AutoFlush = true };
+
+            writer.WriteLine(requestJson);
+            string? line = reader.ReadLine();
+            return line ?? throw new IOException("Received empty response from bridge service");
         }
 
         public static bool IsUserEnrolled(string userSid)
         {
-            string path = GetTemplateFilePath(userSid);
-            return File.Exists(path);
+            if (IsServiceAvailable())
+            {
+                try
+                {
+                    string req = JsonConvert.SerializeObject(new { cmd = "get_enrollment", sid = userSid });
+                    string rsp = SendPipeCommand(req, 3000);
+                    var j = JObject.Parse(rsp);
+                    return j["enrolled"]?.Value<bool>() == true;
+                }
+                catch { }
+            }
+
+            // Fallback for local administrative testing
+            return EncryptedTemplateStore.IsUserEnrolled(userSid);
         }
 
         public static UserEnrollmentData? LoadEnrollment(string userSid)
         {
-            string path = GetTemplateFilePath(userSid);
-            if (!File.Exists(path)) return null;
-
-            lock (_fileLock)
+            if (IsServiceAvailable())
             {
                 try
                 {
-                    using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    using var reader = new BinaryReader(fs, Encoding.UTF8);
+                    string req = JsonConvert.SerializeObject(new { cmd = "get_enrollment", sid = userSid });
+                    string rsp = SendPipeCommand(req, 3000);
+                    var j = JObject.Parse(rsp);
 
-                    uint magic = reader.ReadUInt32();
-                    if (magic != UserEnrollmentData.MagicHeader)
-                        throw new InvalidDataException("Invalid template file magic header.");
+                    if (j["ok"]?.Value<bool>() != true || j["enrolled"]?.Value<bool>() != true)
+                        return null;
 
-                    int version = reader.ReadInt32();
-                    if (version != UserEnrollmentData.CurrentFormatVersion)
-                        throw new InvalidDataException($"Unsupported template format version: {version}");
-
-                    string sid = reader.ReadString();
-                    long ticks = reader.ReadInt64();
-                    int fingerCount = reader.ReadInt32();
-
-                    if (fingerCount < 0 || fingerCount > UserEnrollmentData.MaxFingersPerUser)
-                        throw new InvalidDataException($"Invalid finger count in template: {fingerCount}");
+                    var summary = j["summary"];
+                    if (summary == null) return null;
 
                     var data = new UserEnrollmentData
                     {
-                        UserSid = sid,
-                        EnrolledUtc = new DateTime(ticks, DateTimeKind.Utc)
+                        UserSid = summary["UserSid"]?.Value<string>() ?? userSid,
+                        EnrolledUtc = summary["EnrolledUtc"]?.Value<DateTime>() ?? DateTime.UtcNow
                     };
 
-                    for (int i = 0; i < fingerCount; i++)
+                    var fingersArr = summary["Fingers"] as JArray;
+                    if (fingersArr != null)
                     {
-                        int fIdx = reader.ReadInt32();
-                        string label = reader.ReadString();
-                        int quality = reader.ReadInt32();
-                        long fTicks = reader.ReadInt64();
-                        int tLen = reader.ReadInt32();
-
-                        if (tLen < 0 || tLen > 4096)
-                            throw new InvalidDataException($"Invalid template byte length: {tLen}");
-
-                        byte[] tBytes = reader.ReadBytes(tLen);
-
-                        data.Fingers.Add(new EnrolledFinger
+                        foreach (var f in fingersArr)
                         {
-                            FingerIndex = fIdx,
-                            FingerLabel = label,
-                            Quality = quality,
-                            EnrolledUtc = new DateTime(fTicks, DateTimeKind.Utc),
-                            Template = tBytes
-                        });
+                            data.Fingers.Add(new EnrolledFinger
+                            {
+                                FingerIndex = f["FingerIndex"]?.Value<int>() ?? 0,
+                                FingerLabel = f["FingerLabel"]?.Value<string>() ?? string.Empty,
+                                Quality = f["Quality"]?.Value<int>() ?? 0,
+                                EnrolledUtc = f["EnrolledUtc"]?.Value<DateTime>() ?? DateTime.UtcNow
+                            });
+                        }
                     }
 
                     return data;
                 }
-                catch (Exception ex)
-                {
-                    WorkerLog.Error($"Error loading enrollment for SID {userSid}: {ex.Message}");
-                    return null;
-                }
+                catch { }
             }
+
+            // Fallback for local administrative testing (direct DPAPI load)
+            var record = EncryptedTemplateStore.LoadEnrollment(userSid);
+            if (record == null) return null;
+
+            return new UserEnrollmentData
+            {
+                UserSid = record.UserSid,
+                EnrolledUtc = record.EnrolledUtc,
+                Fingers = record.Fingers.Select(f => new EnrolledFinger
+                {
+                    FingerIndex = f.FingerIndex,
+                    FingerLabel = f.FingerLabel,
+                    Quality = f.Quality,
+                    EnrolledUtc = f.EnrolledUtc,
+                    Template = f.Template
+                }).ToList()
+            };
         }
 
         public static void SaveEnrollment(UserEnrollmentData data)
         {
             if (data == null) throw new ArgumentNullException(nameof(data));
-            if (string.IsNullOrWhiteSpace(data.UserSid)) throw new ArgumentException("UserSid cannot be empty.");
 
-            // Strict enforcement of maximum 2 fingers per user
-            if (data.Fingers.Count > UserEnrollmentData.MaxFingersPerUser)
-                throw new InvalidOperationException($"Cannot enroll more than {UserEnrollmentData.MaxFingersPerUser} fingers per user SID.");
-
-            string path = GetTemplateFilePath(data.UserSid);
-
-            lock (_fileLock)
+            if (IsServiceAvailable())
             {
-                using (var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None))
-                using (var writer = new BinaryWriter(fs, Encoding.UTF8))
+                foreach (var f in data.Fingers)
                 {
-                    writer.Write(UserEnrollmentData.MagicHeader);
-                    writer.Write(UserEnrollmentData.CurrentFormatVersion);
-                    writer.Write(data.UserSid);
-                    writer.Write(data.EnrolledUtc.Ticks);
-                    writer.Write(data.Fingers.Count);
-
-                    foreach (var f in data.Fingers)
+                    var req = new
                     {
-                        writer.Write(f.FingerIndex);
-                        writer.Write(f.FingerLabel ?? string.Empty);
-                        writer.Write(f.Quality);
-                        writer.Write(f.EnrolledUtc.Ticks);
-                        writer.Write(f.Template.Length);
-                        writer.Write(f.Template);
+                        cmd = "enroll_finger",
+                        sid = data.UserSid,
+                        fingerIndex = f.FingerIndex,
+                        label = f.FingerLabel,
+                        quality = f.Quality,
+                        template = Convert.ToBase64String(f.Template)
+                    };
+                    string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 5000);
+                    var j = JObject.Parse(rspJson);
+                    if (j["ok"]?.Value<bool>() != true)
+                    {
+                        string err = j["errorMsg"]?.Value<string>() ?? "Unknown service error";
+                        throw new InvalidOperationException($"Service failed to enroll finger: {err}");
                     }
-
-                    writer.Flush();
                 }
-
-                ApplySecurityAcl(path, data.UserSid);
+                return;
             }
+
+            // Fallback for local administrative testing
+            var principal = new WindowsPrincipal(WindowsIdentity.GetCurrent());
+            bool isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+            string callerSid = isAdmin ? (WindowsIdentity.GetCurrent().User?.Value ?? data.UserSid) : data.UserSid;
+
+            var record = new UserEnrollmentRecord
+            {
+                UserSid = data.UserSid,
+                EnrolledUtc = data.EnrolledUtc,
+                Fingers = data.Fingers.Select(f => new EnrolledFingerRecord
+                {
+                    FingerIndex = f.FingerIndex,
+                    FingerLabel = f.FingerLabel,
+                    Quality = f.Quality,
+                    EnrolledUtc = f.EnrolledUtc,
+                    Template = f.Template
+                }).ToList()
+            };
+
+            EncryptedTemplateStore.SaveEnrollment(callerSid, isAdmin, record);
         }
 
         public static bool DeleteFinger(string userSid, int fingerIndex)
         {
-            var data = LoadEnrollment(userSid);
-            if (data == null) return false;
-
-            int removed = data.Fingers.RemoveAll(f => f.FingerIndex == fingerIndex);
-            if (removed == 0) return false;
-
-            if (data.Fingers.Count == 0)
+            if (IsServiceAvailable())
             {
-                DeleteEnrollment(userSid);
-            }
-            else
-            {
-                SaveEnrollment(data);
+                try
+                {
+                    var req = new { cmd = "delete_finger", sid = userSid, fingerIndex = fingerIndex };
+                    string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 3000);
+                    var j = JObject.Parse(rspJson);
+                    return j["ok"]?.Value<bool>() == true;
+                }
+                catch { return false; }
             }
 
-            return true;
+            var principal = new WindowsPrincipal(WindowsIdentity.GetCurrent());
+            bool isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+            string callerSid = isAdmin ? (WindowsIdentity.GetCurrent().User?.Value ?? userSid) : userSid;
+
+            return EncryptedTemplateStore.DeleteFinger(callerSid, isAdmin, userSid, fingerIndex);
         }
 
         public static bool DeleteEnrollment(string userSid)
         {
-            string path = GetTemplateFilePath(userSid);
-            lock (_fileLock)
+            if (IsServiceAvailable())
             {
-                if (File.Exists(path))
+                try
                 {
-                    try
-                    {
-                        File.Delete(path);
-                        return true;
-                    }
-                    catch { return false; }
+                    var req = new { cmd = "delete_enrollment", sid = userSid };
+                    string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 3000);
+                    var j = JObject.Parse(rspJson);
+                    return j["ok"]?.Value<bool>() == true;
                 }
+                catch { return false; }
             }
-            return false;
+
+            var principal = new WindowsPrincipal(WindowsIdentity.GetCurrent());
+            bool isAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+            string callerSid = isAdmin ? (WindowsIdentity.GetCurrent().User?.Value ?? userSid) : userSid;
+
+            return EncryptedTemplateStore.DeleteEnrollment(callerSid, isAdmin, userSid);
         }
 
         public static List<string> GetAllEnrolledSids()
         {
-            string dir = GetTemplatesDirectory();
-            var list = new List<string>();
-
-            if (Directory.Exists(dir))
+            if (IsServiceAvailable())
             {
-                foreach (string file in Directory.GetFiles(dir, "*.dat"))
+                try
                 {
-                    string sid = Path.GetFileNameWithoutExtension(file);
-                    list.Add(sid);
+                    var req = new { cmd = "list_enrolled_sids" };
+                    string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 3000);
+                    var j = JObject.Parse(rspJson);
+                    var sidsArr = j["sids"] as JArray;
+                    if (sidsArr != null)
+                        return sidsArr.Select(s => s.Value<string>()!).ToList();
                 }
+                catch { }
             }
 
-            return list;
+            return EncryptedTemplateStore.GetAllEnrolledSids();
         }
 
         public static List<UserEnrollmentData> LoadAllEnrollments()
@@ -228,42 +274,48 @@ namespace MFS100Enroll
             return list;
         }
 
-        private static void ApplySecurityAcl(string filePath, string userSid)
+        public static (bool ok, bool accessGranted, int score, string? label) MatchUserViaService(string userSid, byte[] probeTemplate, int threshold = 1400)
         {
-            try
+            var req = new
             {
-                var fileInfo = new FileInfo(filePath);
-                var sec = fileInfo.GetAccessControl();
+                cmd = "match_user",
+                sid = userSid,
+                probe = Convert.ToBase64String(probeTemplate),
+                threshold = threshold
+            };
 
-                // Grant SYSTEM FullControl
-                sec.AddAccessRule(new FileSystemAccessRule(
-                    new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
-                    FileSystemRights.FullControl,
-                    AccessControlType.Allow));
+            string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 5000);
+            var j = JObject.Parse(rspJson);
 
-                // Grant Administrators FullControl
-                sec.AddAccessRule(new FileSystemAccessRule(
-                    new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null),
-                    FileSystemRights.FullControl,
-                    AccessControlType.Allow));
+            bool ok = j["ok"]?.Value<bool>() == true;
+            bool accessGranted = j["accessGranted"]?.Value<bool>() == true;
+            int score = j["score"]?.Value<int>() ?? 0;
+            string? label = j["label"]?.Value<string>();
 
-                // Grant the specific user SID Read/Write access to their own template file
-                try
-                {
-                    var targetUser = new SecurityIdentifier(userSid);
-                    sec.AddAccessRule(new FileSystemAccessRule(
-                        targetUser,
-                        FileSystemRights.ReadAndExecute | FileSystemRights.Modify,
-                        AccessControlType.Allow));
-                }
-                catch { }
-
-                fileInfo.SetAccessControl(sec);
-            }
-            catch
-            {
-                // Non-fatal if running in non-elevated user context during testing
-            }
+            return (ok, accessGranted, score, label);
         }
+
+        public static (bool ok, bool matched, string? userSid, int score) IdentifyUserViaService(byte[] probeTemplate, int threshold = 1400)
+        {
+            var req = new
+            {
+                cmd = "identify_user",
+                probe = Convert.ToBase64String(probeTemplate),
+                threshold = threshold
+            };
+
+            string rspJson = SendPipeCommand(JsonConvert.SerializeObject(req), 8000);
+            var j = JObject.Parse(rspJson);
+
+            bool ok = j["ok"]?.Value<bool>() == true;
+            bool matched = j["matched"]?.Value<bool>() == true;
+            string? sid = j["userSid"]?.Value<string>();
+            int score = j["score"]?.Value<int>() ?? 0;
+
+            return (ok, matched, sid, score);
+        }
+
+        public static string GetTemplateFilePath(string userSid) =>
+            EncryptedTemplateStore.GetTemplateFilePath(userSid);
     }
 }
