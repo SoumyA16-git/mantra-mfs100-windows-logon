@@ -1,0 +1,3 @@
+LIBRARY MFS100SensorAdapter
+EXPORTS
+    WbioQuerySensorInterface

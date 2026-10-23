@@ -1,0 +1,37 @@
+;
+; MFS100 Windows Biometric Framework Extension INF
+; Target: Mantra MFS100 (USB\VID_2C0F&PID_1005)
+;
+[Version]
+Signature="$Windows NT$"
+Class=Extension
+ClassGuid={e2f84427-4133-497e-8465-f0f040778e35}
+Provider=%ProviderName%
+ExtensionId={B16F0239-0144-4284-9D27-E4B283626155}
+DriverVer=10/24/2026,1.0.0.0
+CatalogFile=mfs100_wbf.cat
+
+[Manufacturer]
+%ManufacturerName%=ExtensionList,NTamd64
+
+[ExtensionList.NTamd64]
+%DeviceName%=MFS100_WBF_Extension, USB\VID_2C0F&PID_1005
+
+[MFS100_WBF_Extension]
+
+[MFS100_WBF_Extension.HW]
+AddReg=MFS100_WBF_HW_AddReg
+
+[MFS100_WBF_HW_AddReg]
+HKR,,"WinBio\Configurations\0",0x00010001,0
+HKR,"WinBio\Configurations\0","SensorAdapterBinary",0x00000000,"MFS100SensorAdapter.dll"
+HKR,"WinBio\Configurations\0","EngineAdapterBinary",0x00000000,"MFS100EngineAdapter.dll"
+HKR,"WinBio\Configurations\0","StorageAdapterBinary",0x00000000,"winbiostorageadapter.dll"
+HKR,"WinBio\Configurations\0","DatabaseId",0x00000000,"{B16F0239-0144-4284-9D27-E4B283626155}"
+HKR,"WinBio\Configurations\0","SensorMode",0x00010001,1
+HKR,"WinBio\Configurations\0","SystemSensor",0x00010001,1
+
+[Strings]
+ProviderName="Mantra Softech India Pvt Ltd"
+ManufacturerName="Mantra Softech"
+DeviceName="Mantra MFS100 Windows Hello Biometric Extension"
