@@ -61,7 +61,12 @@ namespace MFS100Enroll
 
         public static string SendPipeCommand(string requestJson, int timeoutMs = 5000)
         {
-            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.InOut, PipeOptions.None);
+            using var client = new NamedPipeClientStream(
+                ".",
+                PipeName,
+                PipeDirection.InOut,
+                PipeOptions.None,
+                TokenImpersonationLevel.Impersonation);
             client.Connect(timeoutMs);
 
             using var reader = new StreamReader(client, new UTF8Encoding(false));

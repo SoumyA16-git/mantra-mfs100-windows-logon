@@ -421,6 +421,7 @@ namespace MFS100BridgeSvc
                                 string matchRspJson = await _workerHost.SendCommandAsync(JsonConvert.SerializeObject(matchReq), 5000);
                                 var matchRsp = JObject.Parse(matchRspJson);
                                 int score = matchRsp["score"]?.Value<int>() ?? 0;
+                                ServiceLog.Info($"Match probe against SID '{sid}' finger {f.FingerIndex}: score={score}, ok={matchRsp["ok"]}");
                                 if (score > bestScore)
                                 {
                                     bestScore = score;

@@ -187,8 +187,17 @@ namespace MFS100Worker
         /// </summary>
         public MatchResult Match(byte[] probe, byte[] gallery)
         {
-            if (!EnsureReady(out string notReadyMsg))
-                return FailMatch(-1, notReadyMsg);
+            if (_mfs == null)
+            {
+                return FailMatch(-1, "MFS100 SDK object is null");
+            }
+
+            if (!_initialized)
+            {
+                var (initOk, initMsg) = Init();
+                if (!initOk)
+                    return FailMatch(-1, $"SDK Init failed: {initMsg}");
+            }
 
             if (probe == null || probe.Length == 0)
                 return FailMatch(-10, "probe template is null or empty");
