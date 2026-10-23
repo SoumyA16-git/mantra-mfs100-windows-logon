@@ -1,56 +1,60 @@
-# Mantra MFS100 Windows 11 Biometric System
+# Mantra MFS100 Windows 11 Biometric Authentication System
 
 A secure, high-accuracy Windows 11 biometric authentication and enrollment solution for the **Mantra MFS100 Optical USB Fingerprint Scanner**, built directly upon the official Mantra native SDK without relying on Aadhaar RD Service.
 
-> **Status**: **Phase 2 Verified** — Preliminary Matcher Discrimination Passed (Margin: 5,511 pts), Native 32-bit Service Isolation Verified, Standalone Enrollment & Verification Suite Complete.  
-> **Host Safety Guarantee**: **Zero Credential Provider DLLs are installed on the host machine.** Standard Windows Password and PIN sign-in remain 100% untouched and always available.
+> **Status**: **Phase 2 Verified (13/13 Automated Security & Boundary Tests Passed)**  
+> **Master Architecture & VM Blueprint**: Delivered & Available in [`docs/revised_architecture_specification.md`](docs/revised_architecture_specification.md) and [`docs/vm_test_harness_and_rollback_runbook.md`](docs/vm_test_harness_and_rollback_runbook.md).  
+> **Host Safety Guarantee**: **Zero Credential Provider DLLs or drivers are registered on the host operating system.** Standard Windows Password and PIN sign-in remain 100% untouched and always available. All Credential Provider experiments are strictly isolated to a Windows 11 Virtual Machine.
 
 ---
 
 ## Important Security Disclosures & Architectural Boundaries
 
 > [!CAUTION]
-> ### 1. Zero Persistent Passwords on Disk
-> Permanent storage of Windows passwords, PINs, or password hashes on disk (even if encrypted with AES or protected by ACLs) is **permanently rejected and prohibited**. No credential files exist on disk.
+> ### 1. Zero Persistent Plaintext Passwords on Disk
+> Permanent storage of Windows passwords, PINs, or password hashes on disk in plaintext or with ordinary reversible software encryption is **strictly prohibited**. No plaintext credential files exist on disk.
 
 > [!WARNING]
-> ### 2. Windows 11 Authentication Reality & Limitations
-> - **Cold Boot 1-Touch Login is Impossible Without Passwords or Domain Smart Cards**:  
->   Windows interactive authentication (`LsaLogonUser`) strictly requires either the user's plaintext password (`MSV1_0_INTERACTIVE_LOGON`) to decrypt DPAPI master keys and load `NTUSER.DAT`, or an Active Directory domain Smart Card PKINIT certificate. Standard local Windows accounts do not support smart cards. Because passwords are not stored on disk, **a 1-touch cold boot biometric login cannot be achieved on standalone Windows 11**.
-> - **Native Windows Hello is Unsupported by the Hardware**:  
->   Windows 11 Windows Biometric Framework (WBF / Windows Hello) requires signed 64-bit WBDI drivers and engine adapters. The Mantra MFS100 provides only a proprietary **32-bit (x86) legacy user-mode SDK**. Consequently, native Windows Hello cannot enumerate or manage this device.
-> - **Volatile RAM Session Caching Limitations**:  
->   Holding a password in volatile RAM for Win+L workstation unlock (`CryptProtectMemory`) protects against non-admin memory dumps, but **provides zero protection against local Administrators, `NT AUTHORITY\SYSTEM` processes, or kernel drivers**. Furthermore, it is wiped on reboot and does not work at cold boot.
+> ### 2. The Four Target Outcomes: Windows 11 Technical Reality Spectrum
+> - **Target 1: Cold-Boot 1-Touch Login (Experimental In-VM via TPM 2.0 Vault)**:  
+>   Windows interactive authentication (`LsaLogonUser`) strictly requires the user's plaintext password (`MSV1_0_INTERACTIVE_LOGON`) at cold boot to decrypt the user's DPAPI Master Key (`PBKDF2(Password, UserSID)`). Without the password, DPAPI fails to initialize, breaking browser vaults, Wi-Fi keys, and EFS. To achieve cold-boot one-touch login without plaintext disk storage, Phase 3 designs an **Experimental TPM 2.0 Hardware-Sealed Vault (CNG Platform Crypto Provider)** unsealed only in Session-0 memory upon biometric match (`score >= 1,400`).
+> - **Target 2: Windows Hello PIN Coexistence (Documented Interface)**:  
+>   A Windows Hello PIN is an NGC authorization secret bound to TPM hardware; it is **not** an ordinary password. Passing a PIN to `MSV1_0` returns `STATUS_LOGON_FAILURE`. NGC APIs are private and protected by LSA PPL. The MFS100 tile operates strictly alongside native PINs under "Sign-in options" without intercepting or simulating PIN flows.
+> - **Target 3: Native Windows Hello Fingerprint (Hard Blocked on Original SDK)**:  
+>   Windows 11 Windows Biometric Framework (WBF / Windows Hello) requires signed **64-bit (`x64`)** UMDF 2.0 WBDI drivers and engine adapters. The Mantra MFS100 manufacturer provides only proprietary **32-bit (x86) legacy binaries** (`MFS100Dll.dll`, `iengine_ansi_iso.dll`). A 64-bit service cannot load 32-bit DLLs. An experimental 64-bit UMDF 2.0 WinUSB IPC bridge is specified for VM-only research.
+> - **Target 4: Mandatory System-Wide 2FA (Experimental In-VM with Dynamic Watchdog)**:  
+>   `ICredentialProviderFilter` can suppress native password tiles. However, unconditional filtering creates a **catastrophic lockout hazard** if the scanner is unplugged or fails. Phase 3 specifies a **Dynamic Hardware-Gated Filter** with an automatic failsafe that unhides native password tiles if the scanner is disconnected or unhealthy.
 
 > [!IMPORTANT]
-> ### 3. Host Protection Policy
-> All Credential Provider development is strictly restricted to an isolated **Windows 11 Virtual Machine (VM) with USB passthrough**. No Credential Provider code will ever be registered on the developer's physical host operating system.
+> ### 3. Host Protection Policy & VM Isolation
+> All Credential Provider and driver experiments are strictly restricted to an isolated **Windows 11 Virtual Machine (VMware Workstation Pro 17+)** with physical USB 2.0 passthrough, read-only shared folders, and a verified snapshot hierarchy (`Clean_Pre_CP_Baseline`).
 
 ---
 
 ## Table of Contents
 
-- [Part 1: End-User Guide](#part-1-end-user-guide)
+- [Part 1: End-User & Enrollment Guide](#part-1-end-user--enrollment-guide)
   - [Hardware & Driver Requirements](#hardware--driver-requirements)
   - [Quick Start](#quick-start)
   - [Enrolling Your Fingerprints](#enrolling-your-fingerprints)
   - [Verifying Enrolled Fingerprints (1:1)](#verifying-enrolled-fingerprints-11)
   - [Multi-User Identification (1:N)](#multi-user-identification-1n)
   - [Deleting Fingerprints](#deleting-fingerprints)
-  - [Troubleshooting & Recovery](#troubleshooting--recovery)
-- [Part 2: Developer & Architecture Manual](#part-2-developer--architecture-manual)
-  - [System Architecture](#system-architecture)
+  - [Troubleshooting & Emergency Recovery](#troubleshooting--emergency-recovery)
+- [Part 2: Developer & Security Architecture Manual](#part-2-developer--security-architecture-manual)
+  - [Privileged Broker Architecture](#privileged-broker-architecture)
   - [Why 32-bit Process Isolation is Mandatory](#why-32-bit-process-isolation-is-mandatory)
   - [Gate 1 Biometric Verification Results](#gate-1-biometric-verification-results)
-  - [Template Storage Specification (`.dat`)](#template-storage-specification-dat)
+  - [Template Protection at Rest (DPAPI + SID Entropy)](#template-protection-at-rest-dpapi--sid-entropy)
   - [Named Pipe IPC Protocol (`\\.\pipe\MFS100Bridge`)](#named-pipe-ipc-protocol-pipemfs100bridge)
   - [Building from Source](#building-from-source)
-  - [Automated Verification & Boundary Tests](#automated-verification--boundary-tests)
+  - [Automated Verification & Boundary Tests (13/13 Passed)](#automated-verification--boundary-tests-1313-passed)
+  - [Windows 11 VM Test Harness Blueprint](#windows-11-vm-test-harness-blueprint)
   - [Native Error Codes Reference](#native-error-codes-reference)
 
 ---
 
-# Part 1: End-User Guide
+# Part 1: End-User & Enrollment Guide
 
 ### Hardware & Driver Requirements
 
@@ -58,20 +62,20 @@ A secure, high-accuracy Windows 11 biometric authentication and enrollment solut
 - **Hardware IDs**: `USB\VID_2C0F&PID_1005`
 - **Operating System**: Windows 11 (64-bit) or Windows 10 (64-bit)
 - **Official Driver**: Mantra MFS100 Driver v9.0.2.5 (Installed in `C:\Program Files\Mantra\MFS100\Driver`)
-- **No Aadhaar RD Service Needed**: This application interacts directly with the driver and SDK. You do not need and should not install Aadhaar RD Service.
-- **Runtime**: Microsoft .NET Framework 4.8 (built into Windows 11)
+- **No Aadhaar RD Service Needed**: Interacts directly with the driver and SDK; RD service is unnecessary and should not be running.
+- **Runtime**: Microsoft .NET Framework 4.8 (built into Windows 11).
 
 ---
 
 ### Quick Start
 
 1. Plug your **Mantra MFS100 scanner** into a USB 2.0 or 3.0 port.
-2. Ensure the official driver is installed (the red optical sensor LED blinks upon plugging in).
-3. Open the project folder and double-click:
+2. Confirm the red optical sensor LED blinks upon connection.
+3. Launch the standalone enrollment application:
    ```cmd
    run_enrollment.bat
    ```
-4. An interactive console menu will appear:
+4. The interactive console menu appears:
    ```text
    ==================================================
       MFS100 Standalone Enrollment & Verification    
@@ -82,7 +86,7 @@ A secure, high-accuracy Windows 11 biometric authentication and enrollment solut
      3. Perform 1:1 Fingerprint Verification
      4. Perform 1:N Multi-User Identification
      5. Delete Enrolled Fingerprint
-     6. Run Automated Template Boundary Tests (AC 2.3 & 2.7)
+     6. Run Automated Template Boundary Tests (13 Security & Biometric Tests)
      7. Exit
    ```
 
@@ -98,26 +102,26 @@ To ensure high accuracy and prevent false rejections, the enrollment workflow en
    - **`0`**: Primary Finger (e.g., Right Index)
    - **`1`**: Secondary Finger (e.g., Left Thumb)
 4. Enter a descriptive label (e.g., `Right Index`).
-5. **The 3-Scan Process**:
-   - The tool will ask you to perform **3 consecutive scans** of the *exact same finger*.
-   - **Crucial**: Clean the sensor glass with a soft cloth and **lift your finger completely** between each scan.
-   - Each scan must meet a minimum quality score of **`>= 60`** (recommended: 70–85).
+5. **The 3-Scan Consistency Process**:
+   - The tool prompts for **3 consecutive captures** of the *exact same finger*.
+   - **Crucial**: Clean the optical glass and **lift your finger completely** between each capture.
+   - Each capture must meet a minimum quality score of **`>= 60`** (recommended: 70–85).
    - The application automatically cross-matches all 3 scans (`Scan 1 vs 2`, `Scan 2 vs 3`, `Scan 1 vs 3`). All pairs must match with a score **`>= 1,400`**.
-   - The scan with the highest biometric quality is saved to your user template.
+   - The capture with the highest biometric quality is encrypted and saved to your user template.
 
 > [!NOTE]
-> Each Windows user SID is strictly limited to a **maximum of 2 enrolled fingers**. If you attempt to enroll a 3rd finger, the tool will instruct you to replace an existing one.
+> Each Windows user SID is strictly limited to a **maximum of 2 enrolled fingers**.
 
 ---
 
 ### Verifying Enrolled Fingerprints (1:1)
 
-Option **`3`** (or `--verify <username>`) tests 1:1 verification:
+Option **`3`** (or `--verify <username>`) tests 1:1 biometric verification:
 1. Select your username.
-2. When prompted, place your enrolled finger firmly and flatly on the scanner platen.
+2. Place your enrolled finger firmly and flatly on the scanner platen.
 3. The scanner captures a fresh live probe and matches it against your enrolled templates:
-   - **Match Success**: Match score is **`>= 1,400`** (typically 6,000–10,000). The screen displays `[MATCH SUCCESS]` and identifies which finger matched.
-   - **Access Denied**: If an unenrolled finger or someone else's finger is placed, the score drops below 1,400 (typically 0–24) and the screen displays `[ACCESS DENIED]`.
+   - **Match Success**: Score is **`>= 1,400`** (typically 6,000–10,000). The screen displays `[MATCH SUCCESS]` and identifies which finger matched.
+   - **Access Denied**: If an unenrolled or different finger is placed, the score drops below 1,400 (typically 0–24) and the screen displays `[ACCESS DENIED]`.
 
 ---
 
@@ -125,8 +129,8 @@ Option **`3`** (or `--verify <username>`) tests 1:1 verification:
 
 Option **`4`** (or `--identify`) tests 1:N cross-account identification:
 1. Place any enrolled finger on the scanner.
-2. The engine scans through all enrolled Windows SIDs on the system.
-3. It uniquely identifies which Windows user account you belong to and reports the winning match score.
+2. The engine evaluates the probe against all enrolled Windows SIDs on the system.
+3. It uniquely resolves which Windows user account you belong to and reports the winning match score.
 
 ---
 
@@ -138,39 +142,40 @@ Option **`5`** (or `--delete <username> [fingerIndex]`):
 
 ---
 
-### Troubleshooting & Recovery
+### Troubleshooting & Emergency Recovery
 
 - **Red Light Doesn't Turn On**:
   - Unplug the scanner, wait 3 seconds, and plug it back in.
   - Check Windows Device Manager under `Universal Serial Bus controllers` for `Mantra MFS100`.
 - **Quality Too Low (`< 60`)**:
   - Clean the glass platen of any grease or dust.
-  - Press your finger flatly in the center of the optical window with moderate pressure (do not press too lightly).
+  - Press your finger flatly in the center of the optical window with moderate pressure.
 - **Inconsistent Scans Warning During Enrollment**:
-  - If you switch fingers during the 3 enrollment scans, the consistency check will reject the enrollment to protect you from saving a corrupted template. Always use the same finger for all 3 scans.
+  - If you switch fingers during the 3 enrollment scans, the consistency check rejects the enrollment to prevent saving corrupted data. Use the same finger for all 3 scans.
 - **Windows Sign-in Recovery**:
-  - The standard Windows Password and PIN options are **always** active on your system. If the biometric scanner is disconnected, you can simply type your normal password or PIN to log in.
+  - The standard Windows Password and PIN options are **always active** on your system under "Sign-in options".
 
 ---
 
-# Part 2: Developer & Architecture Manual
+# Part 2: Developer & Security Architecture Manual
 
-### System Architecture
+### Privileged Broker Architecture
 
-Windows 11 `LogonUI.exe` is a 64-bit process running in Session 0/1. The Mantra MFS100 SDK is strictly a 32-bit (x86) native library. Direct in-process loading of 32-bit DLLs into 64-bit `LogonUI` or 64-bit applications is forbidden by the Windows operating system.
+Windows 11 `LogonUI.exe` is a 64-bit process running in Session 0/1. The Mantra MFS100 SDK is strictly a 32-bit (x86) native library. In addition, standard users must have **zero direct access** to encrypted template storage.
 
-To solve this, the architecture isolates the native SDK in a dedicated 32-bit worker process connected via local Inter-Process Communication (IPC):
+To solve this, the architecture implements the **Privileged Broker Pattern**:
 
 ```mermaid
 graph TD
-    subgraph Client / User Session
-        CLI[MFS100Enroll.exe / CLI Tool]
-        VMCP[MFS100CP.dll - VM LogonUI]
+    subgraph User / Client Session
+        CLI[MFS100Enroll.exe - Named Pipe Client]
+        VMCP[MFS100CP.dll - VM Credential Provider]
     end
 
-    subgraph Service Layer - Session 0
+    subgraph Privileged Service Layer - Session 0 (SYSTEM)
         PIPE[\\.\pipe\MFS100Bridge - Named Pipe Server]
         SVC[MFS100BridgeSvc.exe - Windows Service]
+        STORE[(%ProgramData%\MFS100CP\templates\)]
     end
 
     subgraph Native Isolation Layer - 32-bit x86
@@ -180,19 +185,19 @@ graph TD
         DEV[(Mantra MFS100 USB Hardware)]
     end
 
-    subgraph Isolated Storage
-        STORE[%ProgramData%\MFS100CP\templates\<UserSID>.dat]
-    end
-
-    CLI -->|Named Pipe / Local API| PIPE
-    VMCP -->|Named Pipe| PIPE
+    CLI -->|Named Pipe IPC / Token Auth| PIPE
+    VMCP -->|Named Pipe IPC| PIPE
     PIPE --> SVC
+    SVC -->|DPAPI LocalMachine + SID Entropy| STORE
     SVC --> HOST
     HOST -->|stdin / stdout JSON IPC| WORKER
     WORKER --> SDK
     SDK --> DEV
-    CLI -->|Read/Write Templates| STORE
 ```
+
+1. **Privileged Storage Broker**: Standard users and the client tool (`MFS100Enroll.exe`) perform **zero direct template file I/O**. All read, write, match, and delete commands route through `\\.\pipe\MFS100Bridge`.
+2. **Caller Authorization**: The service inspects the client token via `RunAsClient`. A non-elevated user can only access their own SID (cross-SID requests receive 403 Forbidden).
+3. **Directory Security**: `%ProgramData%\MFS100CP\templates` has inheritance disabled and ACLs restricted strictly to `NT AUTHORITY\SYSTEM` and `BUILTIN\Administrators`. Standard users cannot open or modify template files directly.
 
 ---
 
@@ -200,166 +205,120 @@ graph TD
 
 1. **Binary Bit-Width Incompatibility**:
    The Mantra driver package includes:
-   - `MFS100Dll.dll` (x86 32-bit PE)
-   - `iengine_ansi_iso.dll` (x86 32-bit Innovatrics minutiae extraction & matching engine)
+   - `MFS100Dll.dll` (x86 32-bit PE, Machine: `0x014C`)
+   - `iengine_ansi_iso.dll` (x86 32-bit minutiae extraction & matching engine)
    - `MANTRA.MFS100.dll` (x86 32-bit .NET interop assembly)
-   A 64-bit process cannot load 32-bit DLLs. Attempting to do so results in `BadImageFormatException` (`0x8007000B`).
+   A 64-bit process cannot load 32-bit DLLs (`BadImageFormatException` / `0x8007000B`).
 2. **Crash Resilience**:
-   Native biometric libraries that interface directly with USB endpoints can occasionally crash or deadlock if a device is abruptly unplugged during capture. By hosting the SDK inside `MFS100Worker.exe`, crashes are contained. `MFS100BridgeSvc` detects worker termination and automatically restarts it within milliseconds without interrupting the operating system.
+   Hosting the SDK inside `MFS100Worker.exe` isolates native USB faults. `MFS100BridgeSvc` enforces hard deadlines (`timeoutMs + 2500ms`) and auto-restarts a terminated worker within milliseconds without interrupting the operating system.
 
 ---
 
 ### Gate 1 Biometric Verification Results
 
-Before implementing enrollment or credential logic, Gate 1 evaluated the discrimination capability of the installed Mantra SDK matcher using live hardware trials:
+Evaluated using live physical trials with Mantra MFS100 scanner (`49007331`):
 
-- **Primary Finger Trials**: 5 distinct captures (Quality 72–84, NFIQ 1–2).
-- **Secondary (Cross-Finger) Trials**: 3 distinct captures (Quality 75–79, NFIQ 2).
-- **Genuine Pairwise Matches (10 pairs)**:
-  - Minimum Score: `5,535`
-  - Maximum Score: `10,000`
-  - Mean Score: `8,599`
-- **Cross-Finger / Impostor Pairwise Matches (15 pairs)**:
-  - Minimum Score: `0`
-  - Maximum Score: `24`
-  - Mean Score: `6`
+- **Genuine Pairwise Matches (10 pairs)**: Min = `5,535`, Max = `10,000`, Mean = `8,599`.
+- **Cross-Finger Pairwise Matches (15 pairs)**: Min = `0`, Max = `24`, Mean = `6`.
 - **Separation Margin**: **`5,511` points** (between genuine minimum 5,535 and cross-finger maximum 24).
 - **Decision Threshold Selected**: **`1,400`** (on the 0–10,000 scale).
   - Observed False Accepts at 1,400: **0 / 15 (0.0%)**
   - Observed False Rejects at 1,400: **0 / 10 (0.0%)**
 
-> [!NOTE]
-> Gate 1 confirms empirical matcher discrimination for this device. It is a preliminary acceptance test, not a commercial certification across open demographic populations.
-
 ---
 
-### Template Storage Specification (`.dat`)
+### Template Protection at Rest (DPAPI + SID Entropy)
 
-All enrolled templates are stored per Windows User SID:
-- **Directory**: `%ProgramData%\MFS100CP\templates\`
-- **File Name**: `<UserSID>.dat` (e.g., `S-1-5-21-2956279811-1683308700-1261978901-1001.dat`)
-
-#### Binary Layout (Version 1):
-
-| Offset | Field | Data Type | Description |
-|---|---|---|---|
-| `0x00` | Magic Header | `uint32` | `0x4D465354` (ASCII: `"MFST"`) |
-| `0x04` | Format Version | `int32` | `1` |
-| `0x08` | User SID | `string` (7-bit prefixed) | Windows User SID string |
-| `Var`  | Enrolled UTC | `int64` | `DateTime.UtcNow.Ticks` |
-| `Var`  | Finger Count | `int32` | Number of enrolled fingers (`1` or `2`) |
-| *Repeated per finger (max 2):* | | | |
-| `+0x00`| Finger Index | `int32` | `0` = Primary, `1` = Secondary |
-| `+0x04`| Label | `string` (7-bit prefixed) | Descriptive label (e.g. `"Right Index"`) |
-| `Var`  | Quality | `int32` | Extraction quality score (0–100) |
-| `Var`  | Enrolled UTC | `int64` | `DateTime.UtcNow.Ticks` |
-| `Var`  | Template Length | `int32` | Length in bytes of ISO template |
-| `Var`  | Template Bytes | `byte[]` | Raw ISO 19794-2 biometric minutiae bytes |
-
-#### Security & Access Control Lists (ACLs):
-Template files contain **zero passwords, PINs, or hashes**. File ACLs are strictly applied on creation:
-- `NT AUTHORITY\SYSTEM`: FullControl
-- `BUILTIN\Administrators`: FullControl
-- `Target User SID`: Read, Write, Modify
-- `All Others`: Denied
+All enrolled templates are encrypted at rest per Windows User SID:
+- **Location**: `%ProgramData%\MFS100CP\templates\<UserSID>.dat`
+- **Encryption Algorithm**: DPAPI Machine Scope (`DataProtectionScope.LocalMachine`) via `ProtectedData.Protect`.
+- **Context Binding**: The target user's Windows SID string (`Encoding.UTF8.GetBytes(userSid)`) is passed as optional entropy. Ciphertext is cryptographically bound to that exact user; renaming or swapping the file to another SID causes decryption to fail (`CryptographicException`).
+- **Zero Plaintext Biometrics**: Files on disk are purely ciphertext (`Raw Magic != MFST`). Plaintext ISO 19794-2 vectors exist only in volatile memory during active matching.
 
 ---
 
 ### Named Pipe IPC Protocol (`\\.\pipe\MFS100Bridge`)
 
-`MFS100BridgeSvc` exposes a duplex named pipe. All messages are line-delimited JSON.
+`MFS100BridgeSvc` exposes a duplex named pipe using line-delimited JSON messages:
 
-#### 1. Ping / Health Check
 ```json
-// Request
-{ "cmd": "ping" }
+// Ping / Health Check
+--> { "cmd": "ping" }
+<-- { "ok": true, "servicePid": 1240, "workerPid": 5488 }
 
-// Response
-{ "ok": true, "servicePid": 1240, "workerPid": 5488 }
-```
+// Live Fingerprint Capture
+--> { "cmd": "capture", "timeoutMs": 10000 }
+<-- { "ok": true, "quality": 78, "nfiq": 2, "isoTemplate": "<base64>" }
 
-#### 2. Device Information
-```json
-// Request
-{ "cmd": "device_info" }
+// Biometric Verification Against Enrolled User
+--> { "cmd": "match_user", "sid": "S-1-5-21-...", "probe": "<base64>", "threshold": 1400 }
+<-- { "ok": true, "accessGranted": true, "score": 9850, "label": "Right Index" }
 
-// Response
-{ "ok": true, "make": "MANTRA", "model": "MFS100", "serial": "49007331", "width": 316, "height": 354 }
-```
-
-#### 3. Live Fingerprint Capture
-```json
-// Request
-{ "cmd": "capture", "timeoutMs": 10000 }
-
-// Response
-{
-  "ok": true,
-  "quality": 78,
-  "nfiq": 2,
-  "isoTemplate": "<base64_encoded_iso19794_2_template>",
-  "ansiTemplate": "<base64_encoded_ansi378_template>"
-}
-```
-
-#### 4. Template Matching
-```json
-// Request
-{
-  "cmd": "match",
-  "probe": "<base64_probe_template>",
-  "gallery": "<base64_gallery_template>"
-}
-
-// Response
-{ "ok": true, "score": 9850 }
+// Multi-User Identification (1:N) Across Enrolled Accounts
+--> { "cmd": "identify_user", "probe": "<base64>", "threshold": 1400 }
+<-- { "ok": true, "matched": true, "userSid": "S-1-5-21-...", "score": 9850 }
 ```
 
 ---
 
 ### Building from Source
 
-#### Prerequisites:
-- Windows 10/11 x64
-- Microsoft .NET SDK (6.0, 7.0, 8.0, or 9.0)
-- .NET Framework 4.8 Developer Pack / Targeting Pack
-
-#### Build Commands:
-From the root workspace directory, run:
-
 ```powershell
-# 1. Build 32-bit Worker
+# 1. Build 32-bit Native Worker
 dotnet build src/Worker/MFS100Worker.csproj -c Release -p:Platform=x86
 
-# 2. Build 32-bit Bridge Service
+# 2. Build Session-0 Bridge Service
 dotnet build src/BridgeService/MFS100BridgeSvc.csproj -c Release -p:Platform=x86
 
-# 3. Build Standalone Enrollment Tool
+# 3. Build Standalone Enrollment Application
 dotnet build src/EnrollmentTool/MFS100Enroll.csproj -c Release -p:Platform=x86
 ```
 
-All native DLLs (`MFS100Dll.dll`, `iengine_ansi_iso.dll`, `MANTRA.MFS100.dll`) are automatically copied to the output directories (`bin\x86\Release\net48\`).
+All native DLLs (`MFS100Dll.dll`, `iengine_ansi_iso.dll`, `MANTRA.MFS100.dll`) are automatically placed beside the executables.
 
 ---
 
-### Automated Verification & Boundary Tests
+### Automated Verification & Boundary Tests (13/13 Passed)
 
-Run the built-in diagnostic test suite to verify storage boundaries, ACLs, and biometric matching:
+Run the automated security, cryptographic, and biometric test suite:
 
 ```powershell
 src\EnrollmentTool\bin\x86\Release\net48\MFS100Enroll.exe --boundary-test
 ```
 
-This runs 10 automated unit and biometric tests:
+All 13 security and biometric boundary tests pass cleanly:
+
 1. **Test 1**: Single finger enrollment (Primary) -> `PASS`
 2. **Test 2**: Secondary finger enrollment (Total 2) -> `PASS`
 3. **Test 3 (AC 2.3)**: Strict 2-finger limit enforcement (`InvalidOperationException` on 3rd finger) -> `PASS`
-4. **Test 4 (AC 2.7)**: Byte-level inspection verifying zero stored credentials -> `PASS`
-5. **Test 5 & 6**: Finger and file deletion lifecycle -> `PASS`
-6. **Test 7 (AC 2.2)**: Multi-scan consistency verification (`score >= 1400`) -> `PASS`
-7. **Test 8 (AC 2.4 & 2.5)**: 1:1 Verification match and reject -> `PASS`
-8. **Test 9 (AC 2.6)**: Cross-user account isolation (User A probe vs User B yields `< 1400`) -> `PASS`
-9. **Test 10**: 1:N multi-user identification across enrolled accounts -> `PASS`
+4. **Test 4 (AC 2.9 & 2.7)**: DPAPI LocalMachine encryption at rest & zero plaintext credentials -> `PASS`
+5. **Test 5 (AC 2.11)**: Cryptographic rejection on SID context mismatch (`CryptographicException`) -> `PASS`
+6. **Test 6 (AC 2.12)**: IPC caller authorization check (403 Forbidden for cross-SID standard users) -> `PASS`
+7. **Test 7 (AC 2.10)**: Directory security & strict ACL enforcement (`SYSTEM` & `Administrators` only) -> `PASS`
+8. **Test 8**: Delete Finger 0, verify Finger 1 persists -> `PASS`
+9. **Test 9**: Clean up test enrollment -> `PASS`
+10. **Test 10 (AC 2.2)**: Multi-scan consistency verification (`score >= 1,400`) -> `PASS`
+11. **Test 11 (AC 2.4 & 2.5)**: 1:1 Verification match and reject -> `PASS`
+12. **Test 12 (AC 2.6)**: Cross-user account isolation (Zero false accepts across accounts) -> `PASS`
+13. **Test 13**: 1:N Multi-user identification across all enrolled SIDs -> `PASS`
+
+---
+
+### Windows 11 VM Test Harness Blueprint
+
+All Credential Provider experiments are strictly isolated to a **Windows 11 VM in VMware Workstation Pro 17+**:
+
+- **Virtual Hardware**: UEFI + Secure Boot + Virtual TPM 2.0 (vTPM).
+- **Physical USB Passthrough**: Mantra MFS100 (`VID 0x2C0F, PID 0x1005`) mapped via VMware USB 2.0 Controller.
+- **Read-Only Artifact Transfer**: Host folder mounted as `MFS100_ReadOnly` with **`Read-only = TRUE`**.
+- **Snapshot Hierarchy**: Master baseline snapshot **`Clean_Pre_CP_Baseline`** established before any Credential Provider registry registration.
+- **4-Tier Disaster Recovery**:
+  1. *Tier 1*: UI Sign-in Options switch to native Password tile.
+  2. *Tier 2*: Windows Safe Mode boot and PowerShell registry purge.
+  3. *Tier 3*: WinRE offline registry hive repair (`reg load HKLM\OFFLINE_SOFTWARE`).
+  4. *Tier 4*: Instant hypervisor snapshot revert (~2 seconds full OS restoration).
+
+Detailed VM setup and recovery procedures: [`docs/vm_test_harness_and_rollback_runbook.md`](docs/vm_test_harness_and_rollback_runbook.md).
 
 ---
 
@@ -377,7 +336,9 @@ This runs 10 automated unit and biometric tests:
 
 ---
 
-## License & Privacy
+## Documentation Index
 
-- **Biometric Privacy**: Fingerprint images are never written to disk. Only standard ISO 19794-2 minutiae vectors are stored in user-isolated files protected by Windows ACLs.
-- **Zero Secrets**: No passwords, PINs, or DPAPI keys are stored. Standard Windows authentication remains active at all times.
+- **Master Architecture Specification**: [`docs/revised_architecture_specification.md`](docs/revised_architecture_specification.md)
+- **VM Test Harness & Rollback Runbook**: [`docs/vm_test_harness_and_rollback_runbook.md`](docs/vm_test_harness_and_rollback_runbook.md)
+- **Phase 2 Results & Metrics**: [`docs/phase2_results.md`](docs/phase2_results.md)
+- **Implementation Plan v3.0**: [`implementation_plan.md`](implementation_plan.md)
