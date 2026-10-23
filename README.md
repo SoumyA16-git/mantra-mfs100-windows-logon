@@ -15,15 +15,15 @@ A secure, high-accuracy Windows 11 biometric authentication and enrollment solut
 > Permanent storage of Windows passwords, PINs, or password hashes on disk in plaintext or with ordinary reversible software encryption is **strictly prohibited**. No plaintext credential files exist on disk.
 
 > [!WARNING]
-> ### 2. The Four Target Outcomes: Windows 11 Technical Reality Spectrum
-> - **Target 1: Cold-Boot 1-Touch Login (Experimental In-VM via TPM 2.0 Vault)**:  
->   Windows interactive authentication (`LsaLogonUser`) strictly requires the user's plaintext password (`MSV1_0_INTERACTIVE_LOGON`) at cold boot to decrypt the user's DPAPI Master Key (`PBKDF2(Password, UserSID)`). Without the password, DPAPI fails to initialize, breaking browser vaults, Wi-Fi keys, and EFS. To achieve cold-boot one-touch login without plaintext disk storage, Phase 3 designs an **Experimental TPM 2.0 Hardware-Sealed Vault (CNG Platform Crypto Provider)** unsealed only in Session-0 memory upon biometric match (`score >= 1,400`).
-> - **Target 2: Windows Hello PIN Coexistence (Documented Interface)**:  
+> ### 2. The Four Target Outcomes: Technical Reality & Verification Status
+> - **Target 1: Cold-Boot 1-Touch Login (Experimental Persistent Encrypted Storage - Unproven)**:  
+>   Windows interactive authentication (`LsaLogonUser`) strictly requires the user's plaintext password (`MSV1_0_INTERACTIVE_LOGON`) at cold boot to derive user DPAPI Master Keys (`PBKDF2(Password, UserSID)`). To evaluate one-touch login without plaintext storage, Phase 3 designs an **Experimental Persistent Encrypted Storage Vault** using Windows CNG Platform Crypto Provider (`MS_PLATFORM_KEY_STORAGE_PROVIDER`) inside vTPM 2.0. Before any login attempt, three prerequisites must be proven in the VM: (1) hardware key protection in TPM silicon, (2) biometric release authorization (`score >= 1,400`), and (3) password-change recovery.
+> - **Target 2: Windows Hello PIN Coexistence (Documented Interface - Validated)**:  
 >   A Windows Hello PIN is an NGC authorization secret bound to TPM hardware; it is **not** an ordinary password. Passing a PIN to `MSV1_0` returns `STATUS_LOGON_FAILURE`. NGC APIs are private and protected by LSA PPL. The MFS100 tile operates strictly alongside native PINs under "Sign-in options" without intercepting or simulating PIN flows.
-> - **Target 3: Native Windows Hello Fingerprint (Hard Blocked on Original SDK)**:  
->   Windows 11 Windows Biometric Framework (WBF / Windows Hello) requires signed **64-bit (`x64`)** UMDF 2.0 WBDI drivers and engine adapters. The Mantra MFS100 manufacturer provides only proprietary **32-bit (x86) legacy binaries** (`MFS100Dll.dll`, `iengine_ansi_iso.dll`). A 64-bit service cannot load 32-bit DLLs. An experimental 64-bit UMDF 2.0 WinUSB IPC bridge is specified for VM-only research.
-> - **Target 4: Mandatory System-Wide 2FA (Experimental In-VM with Dynamic Watchdog)**:  
->   `ICredentialProviderFilter` can suppress native password tiles. However, unconditional filtering creates a **catastrophic lockout hazard** if the scanner is unplugged or fails. Phase 3 specifies a **Dynamic Hardware-Gated Filter** with an automatic failsafe that unhides native password tiles if the scanner is disconnected or unhealthy.
+> - **Target 3: Native Windows Hello Fingerprint (Hard Blocked on Original SDK - Experimental Research)**:  
+>   Windows 11 Windows Biometric Framework (WBF / Windows Hello) requires signed **64-bit (`x64`)** UMDF 2.0 WBDI drivers and engine adapters. The Mantra MFS100 manufacturer provides only proprietary **32-bit (x86) legacy binaries** (`MFS100Dll.dll`, `iengine_ansi_iso.dll`). A 64-bit service cannot load 32-bit DLLs. Custom WBDI integration is treated as **unproven experimental research** until raw USB bulk endpoints, driver implementation, WHQL signature requirements, and Windows Hello enrollment are independently verified inside the VM.
+> - **Target 4: Mandatory System-Wide 2FA (Explicitly Unresolved & Blocked)**:  
+>   We do **not** claim mandatory system-wide 2FA is achieved by `ICredentialProviderFilter`. Unconditional filtering creates a **catastrophic permanent lockout hazard** if the scanner is disconnected or fails, and third-party filters are not loaded in Windows Safe Mode. This target remains **explicitly unresolved** until a supported enforcement architecture with hardware failsafes is demonstrated.
 
 > [!IMPORTANT]
 > ### 3. Host Protection Policy & VM Isolation
@@ -234,6 +234,8 @@ All enrolled templates are encrypted at rest per Windows User SID:
 - **Encryption Algorithm**: DPAPI Machine Scope (`DataProtectionScope.LocalMachine`) via `ProtectedData.Protect`.
 - **Context Binding**: The target user's Windows SID string (`Encoding.UTF8.GetBytes(userSid)`) is passed as optional entropy. Ciphertext is cryptographically bound to that exact user; renaming or swapping the file to another SID causes decryption to fail (`CryptographicException`).
 - **Zero Plaintext Biometrics**: Files on disk are purely ciphertext (`Raw Magic != MFST`). Plaintext ISO 19794-2 vectors exist only in volatile memory during active matching.
+- **Directory Security & Access Control**: `%ProgramData%\MFS100CP\templates` has inheritance disabled and ACLs restricted strictly to `NT AUTHORITY\SYSTEM` and `BUILTIN\Administrators` only.
+- **Privileged Brokerage Enforcement**: Standard users have **zero direct file access** (direct read/write denied). All template reads, writes, matches, and deletions broker exclusively through `\\.\pipe\MFS100Bridge` running as `SYSTEM`. The service verifies caller tokens via `RunAsClient` (rejecting cross-SID access with 403 Forbidden).
 
 ---
 

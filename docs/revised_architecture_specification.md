@@ -156,15 +156,16 @@ The Microsoft-documented path for native Windows Hello fingerprint support is th
    - The legacy Mantra MFS100 optical scanner does not support secure channel encryption or VSM enclave execution.
 
 #### 2.3.4 Experimental Research Architecture (In-VM Only): Custom 64-bit UMDF 2.0 Bridge
-To investigate native Windows Hello integration in the Windows 11 VM:
-1. **Phase 3C-1 (64-bit WinUSB Driver)**: Write a 64-bit UMDF 2.0 WBDI driver using Microsoft's `WinUSB` stack to communicate with MFS100 USB bulk endpoints (Endpoint `0x01` OUT, Endpoint `0x81`/`0x82` IN).
-2. **Phase 3C-2 (IPC Extraction Bridge)**: Because extraction algorithms in `iengine_ansi_iso.dll` are 32-bit, the 64-bit WBF Engine Adapter forwards raw frames via high-speed shared memory to our out-of-process 32-bit `MFS100Worker.exe` for ISO 19794-2 template generation, then returns the template to WBF.
-3. **Phase 3C-3 (Test-Signing in VM)**: Test this bridge exclusively inside the Windows 11 VM with `bcdedit /set testsigning on` and a self-signed test root certificate.
+Custom WBDI driver integration is classified strictly as **unproven experimental research**. Claims of native Windows Hello integration cannot be made until the following components are independently proven and verified inside the VM:
+1. **Raw USB Bulk Protocol**: Reverse-engineering or implementing USB bulk transfers directly via `WinUSB` without relying on 32-bit `MFS100Dll.dll`.
+2. **64-bit Driver Implementation**: Creating a 64-bit UMDF 2.0 driver that satisfies Windows 11 kernel driver architecture.
+3. **WHQL Code Signing Requirements**: Overcoming driver signature enforcement in production vs test-signing in the VM (`bcdedit /set testsigning on`).
+4. **Native Windows Hello Enrollment**: Successfully passing Windows Hello enrollment wizard frames to WBF.
 
-#### 2.3.5 Acceptance Criteria for Target 3:
-- [ ] **AC 3.1**: Windows 11 Device Manager in VM recognizes Mantra MFS100 as a `Biometric device` with a valid WBDI driver.
+#### 2.3.5 Acceptance Criteria for Target 3 (Experimental Gate):
+- [ ] **AC 3.1**: Windows 11 Device Manager in VM recognizes Mantra MFS100 as a `Biometric device` with a valid custom 64-bit WBDI driver.
 - [ ] **AC 3.2**: Windows Settings displays "Fingerprint recognition (Windows Hello): Available".
-- [ ] **AC 3.3**: Windows Hello enrollment wizard captures fingers and completes enrollment.
+- [ ] **AC 3.3**: Windows Hello enrollment wizard captures fingers and completes enrollment natively.
 - [ ] **AC 3.4**: Native `BioCredProv.dll` authenticates the user at Win+L unlock screen.
 
 ---
@@ -174,21 +175,9 @@ To investigate native Windows Hello integration in the Windows 11 VM:
 #### 2.4.1 Target Goal:
 Enforce that no user can sign in to Windows using their password alone. A verified physical fingerprint scan on the Mantra MFS100 must be strictly mandatory for every Windows interactive login.
 
-#### 2.4.2 Documented Windows Interfaces: `ICredentialProviderFilter`
-The documented Microsoft interface for controlling which credential providers appear on `LogonUI` is **`ICredentialProviderFilter`**:
-- Implemented as an in-process COM DLL registered in:
-  `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Provider Filters\{FILTER-GUID}`
-- At logon screen initialization, `LogonUI` invokes:
-  ```cpp
-  HRESULT Filter(
-      CREDENTIAL_PROVIDER_USAGE_SCENARIO cpus,
-      DWORD dwFlags,
-      GUID* rgclsidProviders,
-      BOOL* rgbAllow,
-      DWORD cProviders
-  );
-  ```
-- Setting `rgbAllow[i] = FALSE` for Microsoft's native Password Provider (`{60b78e88-ead8-445c-9cfd-0b87f74ea6cd}`) and PIN Provider (`{d68ddaee-cdb2-41f0-8152-7634fbf6c26f}`) hides them from the user, leaving only the MFS100 2FA tile visible.
+#### 2.4.2 Documented Windows Interfaces & Status: EXPLICITLY UNRESOLVED & BLOCKED
+- We do **not** claim mandatory system-wide 2FA is achieved by `ICredentialProviderFilter`.
+- This target remains **explicitly unresolved and blocked** until a supported enforcement architecture with verified hardware failsafes is demonstrated.
 
 #### 2.4.3 The Critical Catastrophic Lockout Hazard:
 If native Password and PIN providers are filtered out, and:
@@ -196,22 +185,21 @@ If native Password and PIN providers are filtered out, and:
 - The USB controller or optical prism malfunctions,
 - The background service crashes or deadlocks,
 - The user has a bandaged or injured finger,
-**The machine becomes completely inaccessible.** No user or administrator can log in interactively to repair the issue.
+**The machine becomes completely inaccessible.** No user or administrator can log in interactively to repair the issue. Furthermore, `ICredentialProviderFilter` can be bypassed by booting into Windows Safe Mode, meaning true system-wide 2FA is not enforced at the kernel/LSA level.
 
-#### 2.4.4 Safe Architectural Implementation: Dynamic Hardware-Gated Filter (In-VM Only)
-To achieve mandatory 2FA while preventing catastrophic lockout, we design a **Dynamic Hardware-Gated Credential Provider Filter**:
+#### 2.4.4 Safe Experimental Research Path (In-VM Only): Dynamic Hardware-Gated Filter
+To investigate 2FA without catastrophic lockout, an experimental **Dynamic Hardware-Gated Credential Provider Filter** will be evaluated exclusively inside the VM:
 1. **Dynamic Health & Presence Check**:
-   The filter does **not** unconditionally suppress native providers. In `Filter()`, it queries `MFS100BridgeSvc` over named pipe:
+   In `Filter()`, the filter dynamically polls `MFS100BridgeSvc`:
    - Is the Mantra MFS100 physically connected and responsive (`VID 0x2C0F, PID 0x1005`)?
    - Is `MFS100BridgeSvc` in a healthy, running state?
    - Is the target user enrolled with at least one valid fingerprint?
-2. **Conditional Enforcement**:
-   - **If ALL checks PASS**: The filter sets `rgbAllow[PasswordProvider] = FALSE`. Mandatory 2FA is active. The user MUST scan their fingerprint to log in.
-   - **If ANY check FAILS (Emergency Failsafe)**: The filter automatically sets `rgbAllow[PasswordProvider] = TRUE`. Standard Windows password sign-in is unhidden, allowing administrative recovery.
-3. **Safe Mode Immunity**:
-   - Third-party Credential Provider Filters are not loaded in Windows Safe Mode. Safe Mode always provides an untampered recovery path.
+2. **Conditional Enforcement & Failsafe**:
+   - **If ALL checks PASS**: The filter sets `rgbAllow[PasswordProvider] = FALSE`. Only the MFS100 2FA tile is shown.
+   - **If ANY check FAILS (Emergency Failsafe)**: The filter automatically sets `rgbAllow[PasswordProvider] = TRUE`. Standard Windows password sign-in is immediately unhidden, allowing recovery.
+3. **Safe Mode Immunity**: Safe Mode always bypasses third-party filters for guaranteed recovery.
 
-#### 2.4.5 Acceptance Criteria for Target 4:
+#### 2.4.5 Acceptance Criteria for Target 4 (Experimental Gate):
 - [ ] **AC 4.1**: When MFS100 is connected and healthy, native Password and PIN tiles are suppressed; only the MFS100 2FA tile is presented.
 - [ ] **AC 4.2**: Unplugging the MFS100 USB cable causes the filter to unhide native Password/PIN tiles within 2 seconds.
 - [ ] **AC 4.3**: Stopping `MFS100BridgeSvc` triggers automatic fallback to native password tiles.

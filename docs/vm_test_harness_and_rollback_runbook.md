@@ -82,7 +82,7 @@ To prevent any accidental corruption, malware, or unintended modification of the
 1. In VM Settings -> **Options tab** -> Select **Shared Folders**.
 2. Select **Always enabled**.
 3. Click **Add...** -> Set Host Path:
-   `c:\Users\soumy\Documents\Mantra Device Windows Log-on System`
+   `C:\Users\soumy\Documents\Mantra Device Windows Log-on System`
 4. Set Folder Name: `MFS100_ReadOnly`.
 5. **CRITICAL**: Check the box: **`Read-only`**.
 6. Inside the Windows 11 VM guest, navigate to:
@@ -97,15 +97,17 @@ Inside the Windows 11 VM:
 
 ### Step 3.1: Windows 11 Guest Account Setup
 1. Complete standard Windows 11 initial setup (OOBE).
-2. Create two local SAM accounts with known, documented credentials:
+2. Create two local SAM accounts with unique, disposable VM-only credentials:
    - **Primary Local Administrator**:
      - Username: `TestAdmin`
-     - Password: `AdminPassword123!`
+     - Password: `<Generate a unique, disposable random password at VM setup time>`
      - Role: Member of `BUILTIN\Administrators`.
    - **Standard Local User Account**:
      - Username: `TestUser`
-     - Password: `UserPassword123!`
+     - Password: `<Generate a unique, disposable random password at VM setup time>`
      - Role: Standard User (`BUILTIN\Users`).
+   > [!IMPORTANT]
+   > Do NOT place real account credentials in scripts, source control, or logs. Use only disposable, randomly generated passwords dedicated strictly to this isolated VM.
 3. Verify that both accounts can log in using their native passwords via the standard Microsoft Password Provider.
 
 ### Step 3.2: Install VMware Tools
@@ -197,7 +199,7 @@ If an experimental Credential Provider crashes `LogonUI.exe`, causes a black scr
 - **Procedure**:
   1. On the logon screen, look below the username for **"Sign-in options"**.
   2. Click the standard Key icon to select the native Microsoft Password Provider.
-  3. Enter `AdminPassword123!` or `UserPassword123!` to log in.
+  3. Enter your disposable local account password (`TestAdmin` or `TestUser`) to log in.
 
 ### Tier 2: Safe Mode Registry Purge (LogonUI crash / freeze)
 - **When to Use**: `LogonUI.exe` crashes repeatedly, displays a blinking black screen, or locks up on startup.
