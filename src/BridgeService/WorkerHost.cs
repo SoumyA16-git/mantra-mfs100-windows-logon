@@ -166,10 +166,19 @@ namespace MFS100BridgeSvc
                     try
                     {
                         await writer.WriteLineAsync(jsonCommand);
-                        string? line = await reader.ReadLineAsync();
-                        if (string.IsNullOrWhiteSpace(line))
-                            throw new IOException("Worker returned null or empty response");
-                        return line;
+                        string? line;
+                        while (true)
+                        {
+                            line = await reader.ReadLineAsync();
+                            if (line == null)
+                                throw new IOException("Worker returned EOF");
+                            line = line.Trim();
+                            if (line.Length > 0 && line.StartsWith("{") && line.EndsWith("}"))
+                                return line;
+
+                            // Native SDK printf chatter (e.g. "MFS100AutoCapture Quality = N") - ignore it
+                            ServiceLog.Info($"[Worker-IgnoredChatter] {line}");
+                        }
                     }
                     catch (Exception ex)
                     {

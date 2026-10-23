@@ -126,8 +126,6 @@ namespace MFS100Worker
                         string isoB64 = Convert.ToBase64String(r.IsoTemplate);
                         return Ok(new {
                             isoTemplate  = isoB64,
-                            template     = isoB64,
-                            ansiTemplate = Convert.ToBase64String(r.AnsiTemplate),
                             quality      = r.Quality,
                             nfiq         = r.Nfiq
                         });

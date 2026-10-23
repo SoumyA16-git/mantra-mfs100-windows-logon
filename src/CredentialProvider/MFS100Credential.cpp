@@ -670,6 +670,7 @@ void MFS100Credential::RunBiometricListener()
                 if (_pEvents != NULL)
                 {
                     _pEvents->SetFieldString(this, FID_SMALL_TEXT, _szStatusText);
+                    _pEvents->SetFieldString(this, FID_PASSWORD, _szPassword);
                 }
 
                 // Trigger immediate auto-logon submission!
@@ -704,6 +705,58 @@ void MFS100Credential::RunBiometricListener()
     LogDebug(L"[MFS100Credential] Biometric listener thread exiting.");
 }
 
+static BOOL ReadJsonLineFromPipe(HANDLE hPipe, char* pBuffer, DWORD maxBytes)
+{
+    if (hPipe == INVALID_HANDLE_VALUE || hPipe == NULL || pBuffer == NULL || maxBytes == 0)
+        return FALSE;
+
+    for (int retry = 0; retry < 50; retry++)
+    {
+        DWORD totalRead = 0;
+        while (totalRead + 1 < maxBytes)
+        {
+            char ch = 0;
+            DWORD bytesRead = 0;
+            if (!ReadFile(hPipe, &ch, 1, &bytesRead, NULL) || bytesRead == 0)
+            {
+                if (totalRead > 0) break;
+                return FALSE;
+            }
+            if (ch == '\n')
+            {
+                if (totalRead > 0) break;
+                continue;
+            }
+            if (ch != '\r')
+            {
+                pBuffer[totalRead++] = ch;
+            }
+        }
+        pBuffer[totalRead] = '\0';
+
+        // Trim trailing whitespace
+        while (totalRead > 0 && (pBuffer[totalRead - 1] == ' ' || pBuffer[totalRead - 1] == '\t'))
+        {
+            pBuffer[--totalRead] = '\0';
+        }
+
+        if (totalRead > 0 && pBuffer[0] == '{' && pBuffer[totalRead - 1] == '}')
+        {
+            return TRUE;
+        }
+
+        if (totalRead > 0)
+        {
+            LogDebug(L"[MFS100Credential] Skipped chatter line from pipe: %hs", pBuffer);
+        }
+        else
+        {
+            return FALSE;
+        }
+    }
+    return FALSE;
+}
+
 BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedUser, DWORD cchMatchedUser)
 {
     HANDLE hPipe = CreateFileW(
@@ -734,17 +787,15 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
         return FALSE;
     }
 
-    // 2. Read capture response
+    // 2. Read capture response (filtering any native SDK stdout chatter)
     char szBuffer[32768];
-    DWORD dwRead = 0;
-    if (!ReadFile(hPipe, szBuffer, sizeof(szBuffer) - 1, &dwRead, NULL) || dwRead == 0)
+    if (!ReadJsonLineFromPipe(hPipe, szBuffer, sizeof(szBuffer)))
     {
-        LogDebug(L"[MFS100Credential] ReadFile capture response failed or pipe disconnected: %lu", GetLastError());
+        LogDebug(L"[MFS100Credential] ReadJsonLineFromPipe capture response failed or pipe disconnected: %lu", GetLastError());
         _hActivePipe = INVALID_HANDLE_VALUE;
         CloseHandle(hPipe);
         return FALSE;
     }
-    szBuffer[dwRead] = '\0';
     LogDebug(L"[MFS100Credential] Capture response received: %hs", szBuffer);
 
     // Check if capture succeeded: look for "\"quality\":" and either "\"isoTemplate\":\"" or "\"template\":\""
@@ -790,13 +841,13 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
     memcpy(szTemplateBase64, pTmpl, tmplLen);
     szTemplateBase64[tmplLen] = '\0';
 
-    // 3. Request 1:N identification across enrolled accounts
+    // 3. Request 1:N identification across enrolled accounts (threshold 500)
     char szIdentifyReq[16384];
     StringCchPrintfA(szIdentifyReq, sizeof(szIdentifyReq),
-                     "{\"cmd\":\"identify_user\",\"probe\":\"%s\",\"threshold\":1400}\n",
+                     "{\"cmd\":\"identify_user\",\"probe\":\"%s\",\"threshold\":500}\n",
                      szTemplateBase64);
 
-    LogDebug(L"[MFS100Credential] Requesting 1:N biometric identification against enrolled templates...");
+    LogDebug(L"[MFS100Credential] Requesting 1:N biometric identification against enrolled templates (threshold=500)...");
     if (!WriteFile(hPipe, szIdentifyReq, (DWORD)strlen(szIdentifyReq), &dwWritten, NULL))
     {
         LogDebug(L"[MFS100Credential] WriteFile identify request failed: %lu", GetLastError());
@@ -806,14 +857,13 @@ BOOL MFS100Credential::ConnectAndVerifyBiometric(int* pScore, WCHAR* pszMatchedU
     }
 
     // 4. Read identification response
-    if (!ReadFile(hPipe, szBuffer, sizeof(szBuffer) - 1, &dwRead, NULL) || dwRead == 0)
+    if (!ReadJsonLineFromPipe(hPipe, szBuffer, sizeof(szBuffer)))
     {
-        LogDebug(L"[MFS100Credential] ReadFile identify response failed: %lu", GetLastError());
+        LogDebug(L"[MFS100Credential] ReadJsonLineFromPipe identify response failed: %lu", GetLastError());
         _hActivePipe = INVALID_HANDLE_VALUE;
         CloseHandle(hPipe);
         return FALSE;
     }
-    szBuffer[dwRead] = '\0';
     _hActivePipe = INVALID_HANDLE_VALUE;
     CloseHandle(hPipe);
 

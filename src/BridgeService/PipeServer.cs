@@ -100,8 +100,8 @@ namespace MFS100BridgeSvc
                             NamedPipeServerStream.MaxAllowedServerInstances,
                             PipeTransmissionMode.Byte,
                             PipeOptions.Asynchronous,
-                            8192,
-                            8192,
+                            65536,
+                            65536,
                             pipeSecurity);
                         isFirstInstance = false;
                     }
@@ -113,8 +113,8 @@ namespace MFS100BridgeSvc
                             NamedPipeServerStream.MaxAllowedServerInstances,
                             PipeTransmissionMode.Byte,
                             PipeOptions.Asynchronous,
-                            8192,
-                            8192);
+                            65536,
+                            65536);
                     }
 
                     await Task.Factory.FromAsync(serverStream.BeginWaitForConnection, serverStream.EndWaitForConnection, null);
@@ -347,7 +347,7 @@ namespace MFS100BridgeSvc
                     {
                         string? sid = req["sid"]?.Value<string>();
                         string? probeBase64 = req["probe"]?.Value<string>();
-                        int threshold = req["threshold"]?.Value<int>() ?? 1400;
+                        int threshold = req["threshold"]?.Value<int>() ?? 500;
 
                         if (string.IsNullOrEmpty(sid) || string.IsNullOrEmpty(probeBase64))
                             return Protocol.CreateErrorJson(-1, "Missing 'sid' or 'probe' parameter");
@@ -414,7 +414,7 @@ namespace MFS100BridgeSvc
                     case "identify_user":
                     {
                         string? probeBase64 = req["probe"]?.Value<string>();
-                        int threshold = req["threshold"]?.Value<int>() ?? 1400;
+                        int threshold = req["threshold"]?.Value<int>() ?? 500;
 
                         if (string.IsNullOrEmpty(probeBase64))
                             return Protocol.CreateErrorJson(-1, "Missing 'probe' parameter");
