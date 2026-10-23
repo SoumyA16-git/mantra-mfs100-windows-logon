@@ -183,16 +183,22 @@ If a Credential Provider DLL hangs, crashes `LogonUI.exe`, or causes a boot loop
 ## 5. Phase 2 & Phase 3 Acceptance Criteria
 
 ### Phase 2: Standalone Biometric Suite with Encrypted Brokerage
-- [ ] **AC 2.8 (Broker Architecture)**: All template read, write, and delete operations execute exclusively within `MFS100BridgeSvc`. `MFS100Enroll.exe` performs zero direct file I/O.
-- [ ] **AC 2.9 (DPAPI Encryption at Rest)**: Template files on disk are verified to be encrypted with `DataProtectionScope.LocalMachine` + User SID entropy. Plaintext ISO templates never appear in `.dat` files.
-- [ ] **AC 2.10 (Directory ACL Enforcement)**: `%ProgramData%\MFS100CP\templates` ACLs permit only `SYSTEM` and `Administrators`. Standard user access attempts are denied.
-- [ ] **AC 2.11 (SID Context Mismatch)**: Attempting to decrypt a template file with a mismatched user SID throws `CryptographicException` and is rejected.
-- [ ] **AC 2.12 (IPC Authorization)**: A non-elevated client process cannot enroll or modify templates for any SID other than its own token SID.
+- [x] **AC 2.8 (Broker Architecture)**: All template read, write, and delete operations execute exclusively within `MFS100BridgeSvc` over named pipe `\\.\pipe\MFS100Bridge`. `MFS100Enroll.exe` performs zero direct file I/O. **[PASSED - Verified in Test 1-2 & 8-9]**
+- [x] **AC 2.9 (DPAPI Encryption at Rest)**: Template files on disk are verified to be encrypted with `DataProtectionScope.LocalMachine` + User SID entropy. Plaintext ISO templates never appear in `.dat` files (magic != `MFST`). **[PASSED - Verified in Test 4]**
+- [x] **AC 2.10 (Directory ACL Enforcement)**: `%ProgramData%\MFS100CP\templates` ACLs permit only `SYSTEM` and `Administrators` (with inheritance protected). Standard user direct file access is denied. **[PASSED - Verified in Test 7]**
+- [x] **AC 2.11 (SID Context Mismatch)**: Attempting to decrypt a template file with a mismatched user SID throws `CryptographicException` and is cryptographically rejected. **[PASSED - Verified in Test 5]**
+- [x] **AC 2.12 (IPC Authorization)**: A non-elevated client process cannot enroll or modify templates for any SID other than its own token SID (rejected with 403 Forbidden). **[PASSED - Verified in Test 6]**
+- [x] **AC 2.2 (Multi-Scan Consistency)**: Enrolls fingers only when scans match consistently (`score >= 1,400`); rejects inconsistent captures. **[PASSED - Verified in Test 10]**
+- [x] **AC 2.3 & AC 2.7 (Limits & Zero Plaintext Passwords)**: Enforces maximum 2 fingers per account SID; zero passwords or hashes stored in templates. **[PASSED - Verified in Test 1-4]**
+- [x] **AC 2.4 & AC 2.5 (1:1 Verification & Discrimination)**: Genuine fingers score >= 1,400 (MATCH); unenrolled fingers score < 1,400 (DENIED). **[PASSED - Verified in Test 11]**
+- [x] **AC 2.6 (Cross-User Account Isolation)**: Zero false accepts between separate enrolled account SIDs. **[PASSED - Verified in Test 12]**
+- [x] **AC 2.13 (1:N Multi-User Identification)**: Identifies correct user accounts across all enrolled SIDs without false crossover. **[PASSED - Verified in Test 13]**
 
 ### Phase 3: VM Test Harness & Credential Tile Integration
-- [ ] **AC 3.1 (VM Environment Validation)**: Windows 11 VM boots with MFS100 USB passthrough; `MFS100Worker` captures samples inside the VM with quality >= 60.
-- [ ] **AC 3.2 (Snapshot Baseline)**: "Clean_Pre_CP" snapshot created and verified.
-- [ ] **AC 3.3 (Local Account Logon)**: In the VM, `TestUser` logs on via the MFS100 tile using their local password + matching fingerprint (`score >= 1,400`).
-- [ ] **AC 3.4 (Biometric Rejection)**: In the VM, entering the correct password with an incorrect/unregistered finger rejects logon, clears the password buffer from memory, and does not unlock the session.
-- [ ] **AC 3.5 (Native Tile Recovery)**: In the VM, logging on via standard Windows Password and PIN tiles succeeds without interference.
-- [ ] **AC 3.6 (Memory Sanitization)**: Password buffers in the CP tile are overwritten with zeros immediately following LSA submission or match rejection.
+- [ ] **AC 3.1 (VM Environment Validation)**: Windows 11 VM in VMware Workstation Pro boots with MFS100 USB passthrough and vTPM 2.0; `MFS100Worker` captures samples inside the VM with quality >= 60.
+- [ ] **AC 3.2 (Snapshot Baseline)**: "Clean_Pre_CP_Baseline" snapshot created in VMware Workstation and verified before CP registration.
+- [ ] **AC 3.3 (Experimental TPM Vault Sealing)**: Credential sealed via Windows CNG Platform Crypto Provider (`MS_PLATFORM_KEY_STORAGE_PROVIDER`) inside vTPM 2.0; zero plaintext passwords on disk or registry.
+- [ ] **AC 3.4 (One-Touch Logon via Biometric Unseal)**: In the VM, user touches scanner; biometric score >= 1,400; TPM unseals credential in Session-0 memory; `MSV1_0` logs in.
+- [ ] **AC 3.5 (Biometric Rejection & Scrubbing)**: In the VM, impostor finger scores < 1,400; unseal is refused; memory buffers are sanitized with `SecureZeroMemory`.
+- [ ] **AC 3.6 (Native Tile Recovery Unhindered)**: In the VM, logging on via standard Windows Password and PIN tiles succeeds without interference.
+- [ ] **AC 3.7 (Out-of-Sync Password Change Fallback)**: If password changed via native Windows, tile displays recovery instruction and redirects to standard password.
