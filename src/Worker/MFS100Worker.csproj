@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>MFS100Worker</AssemblyName>
+    <RootNamespace>MFS100Worker</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Optimize>true</Optimize>
+    <!-- Force STA for COM compatibility inside the SDK -->
+    <StartupObject>MFS100Worker.Program</StartupObject>
+  </PropertyGroup>
+
+  <!-- Mantra .NET wrapper -->
+  <ItemGroup>
+    <Reference Include="MANTRA.MFS100">
+      <HintPath>..\..\sdk\MANTRA.MFS100.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Native x86 DLLs must land beside the .exe -->
+  <ItemGroup>
+    <Content Include="..\..\sdk\MFS100Dll.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>MFS100Dll.dll</Link>
+    </Content>
+    <Content Include="..\..\sdk\iengine_ansi_iso.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>iengine_ansi_iso.dll</Link>
+    </Content>
+    <Content Include="..\..\sdk\MANTRA.MFS100.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>MANTRA.MFS100.dll</Link>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>

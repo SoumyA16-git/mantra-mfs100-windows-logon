@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <AssemblyName>MFS100Enroll</AssemblyName>
+    <RootNamespace>MFS100Enroll</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <Optimize>true</Optimize>
+    <StartupObject>MFS100Enroll.Program</StartupObject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="System.Management" />
+    <Reference Include="System.Security" />
+    <Reference Include="MANTRA.MFS100">
+      <HintPath>..\..\sdk\MANTRA.MFS100.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Native x86 DLLs must land beside the executable -->
+  <ItemGroup>
+    <None Include="..\..\sdk\MFS100Dll.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>MFS100Dll.dll</Link>
+    </None>
+    <None Include="..\..\sdk\iengine_ansi_iso.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>iengine_ansi_iso.dll</Link>
+    </None>
+    <None Include="..\..\sdk\MANTRA.MFS100.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>MANTRA.MFS100.dll</Link>
+    </None>
+  </ItemGroup>
+
+  <!-- Share SdkManager and WorkerLog from Worker project -->
+  <ItemGroup>
+    <Compile Include="..\Worker\SdkManager.cs" Link="SdkManager.cs" />
+    <Compile Include="..\Worker\WorkerLog.cs" Link="WorkerLog.cs" />
+  </ItemGroup>
+
+</Project>
