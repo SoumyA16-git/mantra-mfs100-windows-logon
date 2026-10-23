@@ -168,10 +168,23 @@ HRESULT MFS100Credential::GetFieldState(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD
 
     case FID_LARGE_TEXT:
     case FID_SMALL_TEXT:
-    case FID_USERNAME:
     case FID_SUBMIT:
         *pcpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
         *pcpfis = CPFIS_NONE;
+        return S_OK;
+
+    case FID_USERNAME:
+        // When unlocking or when bound to a specific user SID, NEVER show an editable username field!
+        if (_cpus == CPUS_UNLOCK_WORKSTATION || _szUserSid[0] != L'\0')
+        {
+            *pcpfs = CPFS_HIDDEN;
+            *pcpfis = CPFIS_NONE;
+        }
+        else
+        {
+            *pcpfs = CPFS_DISPLAY_IN_SELECTED_TILE;
+            *pcpfis = CPFIS_NONE;
+        }
         return S_OK;
 
     case FID_PASSWORD:
@@ -188,6 +201,7 @@ HRESULT MFS100Credential::GetFieldState(DWORD dwIndex, CREDENTIAL_PROVIDER_FIELD
 
 HRESULT MFS100Credential::GetStringValue(DWORD dwIndex, PWSTR* ppsz)
 {
+    LogDebug(L"[MFS100Credential] GetStringValue called for FieldID=%d", dwIndex);
     if (ppsz == NULL) return E_POINTER;
     *ppsz = NULL;
 
@@ -205,7 +219,7 @@ HRESULT MFS100Credential::GetStringValue(DWORD dwIndex, PWSTR* ppsz)
         pszSource = _szUsername;
         break;
     default:
-        return E_INVALIDARG;
+        return E_NOTIMPL;
     }
 
     DWORD cch = (DWORD)wcslen(pszSource) + 1;
@@ -214,6 +228,7 @@ HRESULT MFS100Credential::GetStringValue(DWORD dwIndex, PWSTR* ppsz)
 
     StringCchCopyW(pszAlloc, cch, pszSource);
     *ppsz = pszAlloc;
+    LogDebug(L"[MFS100Credential] GetStringValue for FieldID=%d returned: '%s'", dwIndex, pszAlloc);
     return S_OK;
 }
 
@@ -313,13 +328,14 @@ HRESULT MFS100Credential::SetCheckboxValue(DWORD dwIndex, BOOL bChecked)
 
 HRESULT MFS100Credential::GetSubmitButtonValue(DWORD dwIndex, DWORD* pdwAdjacentTo)
 {
+    LogDebug(L"[MFS100Credential] GetSubmitButtonValue called for FieldID=%d", dwIndex);
     if (pdwAdjacentTo == NULL) return E_POINTER;
     if (dwIndex == FID_SUBMIT)
     {
         *pdwAdjacentTo = FID_PASSWORD;
         return S_OK;
     }
-    return E_INVALIDARG;
+    return E_NOTIMPL;
 }
 
 HRESULT MFS100Credential::GetComboBoxValueCount(DWORD dwIndex, DWORD* pcItems, DWORD* pdwSelectedItem)
