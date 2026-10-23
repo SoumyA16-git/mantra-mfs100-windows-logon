@@ -1,0 +1,82 @@
+.encoding = "windows-1252"
+config.version = "8"
+virtualHW.version = "20"
+displayName = "Windows 11 MFS100 Test"
+guestOS = "windows11-64"
+
+# Firmware & UEFI Secure Boot (Mandatory for Windows 11)
+firmware = "efi"
+uefi.secureBoot.enabled = "TRUE"
+
+# CPU & Memory Configuration
+memsize = "4096"
+numvcpus = "2"
+cpuid.coresPerSocket = "2"
+
+# NVMe System Virtual Disk (64 GB)
+nvme0.present = "TRUE"
+nvme0:0.present = "TRUE"
+nvme0:0.fileName = "Windows 11 x64.vmdk"
+
+# SATA Optical Drive connected to Windows 11 ISO
+sata0.present = "TRUE"
+sata0:1.present = "TRUE"
+sata0:1.fileName = "C:\Users\soumy\Downloads\Windows11_Client_x64_en-us_26300_9457.iso"
+sata0:1.deviceType = "cdrom-image"
+sata0:1.startConnected = "TRUE"
+
+# Network Adapter
+ethernet0.present = "TRUE"
+ethernet0.connectionType = "nat"
+ethernet0.virtualDev = "e1000e"
+ethernet0.wakeOnPcktRcv = "FALSE"
+ethernet0.addressType = "generated"
+
+# PCIe Root Ports (Required for PCIe devices and NVMe)
+pciBridge0.present = "TRUE"
+pciBridge4.present = "TRUE"
+pciBridge4.virtualDev = "pcieRootPort"
+pciBridge4.functions = "8"
+pciBridge5.present = "TRUE"
+pciBridge5.virtualDev = "pcieRootPort"
+pciBridge5.functions = "8"
+pciBridge6.present = "TRUE"
+pciBridge6.virtualDev = "pcieRootPort"
+pciBridge6.functions = "8"
+pciBridge7.present = "TRUE"
+pciBridge7.virtualDev = "pcieRootPort"
+pciBridge7.functions = "8"
+
+# USB 2.0 EHCI Controller with Mantra MFS100 Passthrough (VID 0x2C0F, PID 0x1005)
+usb.present = "TRUE"
+ehci.present = "TRUE"
+usb.generic.autoconnect = "TRUE"
+usb.autoConnect.device0 = "vid:2c0f pid:1005"
+
+# Read-Only Shared Folder for Host Workspace Isolation
+isolation.tools.hgfs.disable = "FALSE"
+sharedFolder.option = "alwaysEnabled"
+sharedFolder.maxNum = "1"
+sharedFolder0.present = "TRUE"
+sharedFolder0.enabled = "TRUE"
+sharedFolder0.readOnly = "TRUE"
+sharedFolder0.hostPath = "C:\Users\soumy\Documents\Mantra Device Windows Log-on System"
+sharedFolder0.guestName = "MFS100_ReadOnly"
+sharedFolder0.expiration = "never"
+
+# Sound & Graphics
+sound.present = "TRUE"
+sound.virtualDev = "hdaudio"
+sound.autodetect = "TRUE"
+svga.autodetect = "TRUE"
+
+# VMware Tools & Power Management
+tools.syncTime = "TRUE"
+tools.upgrade.policy = "upgradeAtPowerCycle"
+powerType.powerOff = "soft"
+powerType.powerOn = "soft"
+powerType.suspend = "soft"
+powerType.reset = "soft"
+extendedConfigFile = "Windows 11 x64.vmxf"
+sound.fileName = "-1"
+virtualHW.productCompatibility = "hosted"

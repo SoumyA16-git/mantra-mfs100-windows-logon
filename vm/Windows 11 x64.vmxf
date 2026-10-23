@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<Foundry>
+<VM>
+<VMId type="string">52 5a e4 ac e7 b2 a9 56-ba ee c7 d4 03 6b b8 0e</VMId>
+<ClientMetaData>
+<clientMetaDataAttributes/>
+<HistoryEventList/></ClientMetaData>
+<vmxPathName type="string">Windows 11 x64.vmx</vmxPathName></VM></Foundry>

@@ -1,0 +1,6 @@
+#pragma once
+#include <initguid.h>
+
+// {B16F0239-0144-4284-9D27-E4B283626155}
+DEFINE_GUID(CLSID_MFS100CredentialProvider,
+    0xb16f0239, 0x144, 0x4284, 0x9d, 0x27, 0xe4, 0xb2, 0x83, 0x62, 0x61, 0x55);
