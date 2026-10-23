@@ -1,41 +1,43 @@
 @echo off
+setlocal enabledelayedexpansion
 cd /d "%~dp0"
 echo ==================================================
 echo   Registering Mantra MFS100 Credential Provider...
 echo ==================================================
 net session >nul 2>&1
-if %errorlevel% neq 0 (
+if errorlevel 1 (
+    echo.
     echo [ERROR] Please right-click this script and select "Run as administrator"!
+    echo.
     pause
     exit /b 1
 )
 
-:: Pre-emptively kill any running LogonUI holding file lock on MFS100CP.dll
+:: Terminate any running LogonUI holding file lock on MFS100CP.dll
 taskkill /f /im LogonUI.exe >nul 2>&1
-timeout /t 1 /nobreak >nul 2>&1
+ping 127.0.0.1 -n 2 >nul
 
 mkdir "C:\Program Files\MFS100" >nul 2>&1
-copy /y "%~dp0MFS100CP.dll" "C:\Program Files\MFS100\MFS100CP.dll"
-if %errorlevel% neq 0 (
-    echo [ERROR] Could not overwrite C:\Program Files\MFS100\MFS100CP.dll (File locked).
-    echo Retrying with force...
+copy /y "%~dp0MFS100CP.dll" "C:\Program Files\MFS100\MFS100CP.dll" >nul 2>&1
+if errorlevel 1 (
+    echo [INFO] Target DLL is in use. Retrying file unlock...
     taskkill /f /im LogonUI.exe >nul 2>&1
-    timeout /t 2 /nobreak >nul 2>&1
+    ping 127.0.0.1 -n 3 >nul
     copy /y "%~dp0MFS100CP.dll" "C:\Program Files\MFS100\MFS100CP.dll"
 )
 
-:: 1. COM In-proc server registration (both HKLM\Software\Classes and HKCR)
-reg add "HKLM\SOFTWARE\Classes\CLSID\{B16F0239-0144-4284-9D27-E4B283626155}" /ve /t REG_SZ /d "Mantra MFS100 Credential Provider" /f
-reg add "HKLM\SOFTWARE\Classes\CLSID\{B16F0239-0144-4284-9D27-E4B283626155}\InprocServer32" /ve /t REG_SZ /d "C:\Program Files\MFS100\MFS100CP.dll" /f
-reg add "HKLM\SOFTWARE\Classes\CLSID\{B16F0239-0144-4284-9D27-E4B283626155}\InprocServer32" /v "ThreadingModel" /t REG_SZ /d "Apartment" /f
+:: 1. COM In-proc server registration
+reg add "HKLM\SOFTWARE\Classes\CLSID\{B16F0239-0144-4284-9D27-E4B283626155}" /ve /t REG_SZ /d "Mantra MFS100 Credential Provider" /f >nul
+reg add "HKLM\SOFTWARE\Classes\CLSID\{B16F0239-0144-4284-9D27-E4B283626155}\InprocServer32" /ve /t REG_SZ /d "C:\Program Files\MFS100\MFS100CP.dll" /f >nul
+reg add "HKLM\SOFTWARE\Classes\CLSID\{B16F0239-0144-4284-9D27-E4B283626155}\InprocServer32" /v "ThreadingModel" /t REG_SZ /d "Apartment" /f >nul
 
 :: 2. Windows Credential Provider registration
-reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{B16F0239-0144-4284-9D27-E4B283626155}" /ve /t REG_SZ /d "MFS100CredentialProvider" /f
+reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\Credential Providers\{B16F0239-0144-4284-9D27-E4B283626155}" /ve /t REG_SZ /d "MFS100CredentialProvider" /f >nul
 
 :: 3. Run regsvr32
 regsvr32.exe /s "C:\Program Files\MFS100\MFS100CP.dll"
 
-:: 4. Disable Windows Hello PIN exclusive restriction so Windows 11 displays "Sign-in options"
+:: 4. Disable Windows Hello PIN exclusive restriction so Windows 11 displays Sign-in options
 reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\PasswordLess\Device" /v "DevicePasswordLessBuildVersion" /t REG_DWORD /d 0 /f >nul 2>&1
 
 :: 5. Refresh LogonUI so the new tile is immediately loaded
