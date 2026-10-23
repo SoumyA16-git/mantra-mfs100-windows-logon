@@ -238,37 +238,49 @@ HRESULT MFS100Credential::SetStringValue(DWORD dwIndex, PCWSTR psz)
 
 static HBITMAP CreateBiometricTileBitmap()
 {
-    const int w = 48;
-    const int h = 48;
-    HDC hdcScreen = GetDC(NULL);
-    HDC hdcMem = CreateCompatibleDC(hdcScreen);
-    HBITMAP hbmp = CreateCompatibleBitmap(hdcScreen, w, h);
+    const int w = 96;
+    const int h = 96;
+    BITMAPINFO bmi = { 0 };
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = w;
+    bmi.bmiHeader.biHeight = -h; // top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* pBits = NULL;
+    HDC hdcMem = CreateCompatibleDC(NULL);
+    HBITMAP hbmp = CreateDIBSection(hdcMem, &bmi, DIB_RGB_COLORS, &pBits, NULL, 0);
+    if (!hbmp)
+    {
+        if (hdcMem) DeleteDC(hdcMem);
+        return NULL;
+    }
     HBITMAP hbmpOld = (HBITMAP)SelectObject(hdcMem, hbmp);
 
-    // Background: dark slate
-    HBRUSH hbrBg = CreateSolidBrush(RGB(32, 34, 40));
+    // Background: dark blue/slate
+    HBRUSH hbrBg = CreateSolidBrush(RGB(24, 28, 36));
     RECT rc = { 0, 0, w, h };
     FillRect(hdcMem, &rc, hbrBg);
     DeleteObject(hbrBg);
 
     // Cyan/blue biometric scanner outline
-    HPEN hPen = CreatePen(PS_SOLID, 2, RGB(0, 162, 237));
+    HPEN hPen = CreatePen(PS_SOLID, 4, RGB(0, 162, 237));
     HPEN hPenOld = (HPEN)SelectObject(hdcMem, hPen);
     HBRUSH hbrHollow = (HBRUSH)GetStockObject(HOLLOW_BRUSH);
     SelectObject(hdcMem, hbrHollow);
 
-    RoundRect(hdcMem, 6, 6, 42, 42, 12, 12);
+    RoundRect(hdcMem, 12, 12, 84, 84, 24, 24);
 
     // Fingerprint ridges inside
-    Arc(hdcMem, 12, 10, 36, 38, 14, 24, 34, 24);
-    Arc(hdcMem, 16, 14, 32, 34, 18, 24, 30, 24);
-    Arc(hdcMem, 20, 18, 28, 30, 21, 24, 27, 24);
+    Arc(hdcMem, 24, 20, 72, 76, 28, 48, 68, 48);
+    Arc(hdcMem, 32, 28, 64, 68, 36, 48, 60, 48);
+    Arc(hdcMem, 40, 36, 56, 60, 42, 48, 54, 48);
 
     SelectObject(hdcMem, hPenOld);
     DeleteObject(hPen);
     SelectObject(hdcMem, hbmpOld);
     DeleteDC(hdcMem);
-    ReleaseDC(NULL, hdcScreen);
 
     return hbmp;
 }

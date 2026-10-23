@@ -8,6 +8,7 @@
 #include <strsafe.h>
 #include <shlwapi.h>
 #include <credentialprovider.h>
+#include <shlguid.h>
 #include <ntsecapi.h>
 #define SECURITY_WIN32
 #include <security.h>

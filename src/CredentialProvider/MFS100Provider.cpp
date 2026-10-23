@@ -3,12 +3,12 @@
 
 static const CREDENTIAL_PROVIDER_FIELD_DESCRIPTOR s_rgFieldDescriptors[] =
 {
-    { FID_LOGO,       CPFT_TILE_IMAGE,    (PWSTR)L"MFS100 Logo" },
-    { FID_LARGE_TEXT, CPFT_LARGE_TEXT,    (PWSTR)L"MFS100 Biometric Login" },
-    { FID_SMALL_TEXT, CPFT_SMALL_TEXT,    (PWSTR)L"Biometric Status" },
-    { FID_USERNAME,   CPFT_EDIT_TEXT,     (PWSTR)L"Username" },
-    { FID_PASSWORD,   CPFT_PASSWORD_TEXT, (PWSTR)L"Password" },
-    { FID_SUBMIT,     CPFT_SUBMIT_BUTTON, (PWSTR)L"Logon" }
+    { FID_LOGO,       CPFT_TILE_IMAGE,    (PWSTR)L"MFS100 Logo",          CPFG_CREDENTIAL_PROVIDER_LOGO },
+    { FID_LARGE_TEXT, CPFT_LARGE_TEXT,    (PWSTR)L"MFS100 Biometric Login", CPFG_CREDENTIAL_PROVIDER_LABEL },
+    { FID_SMALL_TEXT, CPFT_SMALL_TEXT,    (PWSTR)L"Biometric Status",     GUID_NULL },
+    { FID_USERNAME,   CPFT_EDIT_TEXT,     (PWSTR)L"Username",             CPFG_LOGON_USERNAME },
+    { FID_PASSWORD,   CPFT_PASSWORD_TEXT, (PWSTR)L"Password",             CPFG_LOGON_PASSWORD },
+    { FID_SUBMIT,     CPFT_SUBMIT_BUTTON, (PWSTR)L"Logon",                CPFG_STANDALONE_SUBMIT_BUTTON }
 };
 
 MFS100Provider::MFS100Provider() :
@@ -132,6 +132,7 @@ HRESULT MFS100Provider::GetFieldDescriptorAt(DWORD dwIndex, CREDENTIAL_PROVIDER_
 
     pcpfd->dwFieldID = s_rgFieldDescriptors[dwIndex].dwFieldID;
     pcpfd->cpft = s_rgFieldDescriptors[dwIndex].cpft;
+    pcpfd->guidFieldType = s_rgFieldDescriptors[dwIndex].guidFieldType;
 
     DWORD cch = (DWORD)wcslen(s_rgFieldDescriptors[dwIndex].pszLabel) + 1;
     pcpfd->pszLabel = (PWSTR)CoTaskMemAlloc(cch * sizeof(WCHAR));
