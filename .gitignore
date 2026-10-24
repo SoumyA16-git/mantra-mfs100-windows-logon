@@ -34,3 +34,5 @@ $RECYCLE.BIN/
 # Template / Secret files (Privacy safety)
 *.dat
 *.iso
+mfs100driver*.exe
+

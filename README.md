@@ -21,38 +21,74 @@ This project integrates the physical Mantra MFS100 directly into the **Windows B
 
 ---
 
-## Quick Start (3 Steps)
+## Complete End-User Setup Guide (Step-by-Step)
 
-### Prerequisites
-
-1. **Hardware**: Mantra MFS100 USB Fingerprint Scanner plugged into a USB 2.0 / 3.0 port.
-2. **Driver**: Official Mantra MFS100 Driver v9.0.2.5 installed (verify the optical sensor LED blinks on plugin).
-3. **OS**: Windows 11 (64-bit) or Windows 10 (64-bit).
-4. **Windows Hello PIN**: Make sure your Windows account already has a PIN configured under *Sign-in options* (Windows requires a PIN before allowing biometric setup).
+Follow these exact 6 steps in chronological order on any Windows 11 / 10 PC to get native Windows Hello fingerprint logon working:
 
 ---
 
-### Step 1: Enable Test Signing (For Self-Signed Test Certificate)
+### Step 1: Check and Disable Secure Boot in BIOS
 
-Because the custom WBF adapters are digitally signed with a local root certificate, enable Windows Test Signing:
+> [!IMPORTANT]
+> **Why this is required:** Microsoft UEFI security policies strictly block `testsigning` when Secure Boot is active. To load our self-signed driver certificate for free personal use, Secure Boot must be turned off. (For production deployment with a commercial code-signing certificate, Secure Boot can remain 100% ON).
 
-1. Open **Command Prompt** or **PowerShell as Administrator**.
-2. Run:
+1. **Check your current Secure Boot state:**
+   - Press **Win + R**, type `msinfo32`, and hit Enter.
+   - In *System Summary*, look for **Secure Boot State**.
+   - If it says **Off**, you are good! Skip directly to [Step 2](#step-2-enable-test-signing-mode).
+   - If it says **On**, disable it in BIOS:
+2. **How to disable Secure Boot:**
+   - Restart your computer and press your BIOS key during boot:
+     * **Dell**: F2 or F12
+     * **HP**: F10 or Esc
+     * **Lenovo**: F2 or Fn+F2
+     * **Asus / Acer / MSI / Others**: Del or F2
+     * *(Alternative Windows route)*: Go to **Settings > System > Recovery > Advanced startup (Restart now) > Troubleshoot > Advanced options > UEFI Firmware Settings**.
+   - In BIOS setup, open the **Security** or **Boot** menu.
+   - Locate **Secure Boot** and set it to **Disabled**.
+   - Press **F10** to Save & Exit, then boot back into Windows.
+
+---
+
+### Step 2: Enable Test Signing Mode
+
+1. Open the Start menu, type `cmd`.
+2. Right-click **Command Prompt** and select **Run as administrator**.
+3. Run the following command:
    ```cmd
    bcdedit /set testsigning on
    ```
-3. Restart your computer.
-
-> [!NOTE]
-> **Production / Enterprise Deployment:** If you have an official Commercial Code Signing Certificate (e.g. DigiCert, Sectigo, GlobalSign) or an Active Directory Enterprise Root CA, sign `MFS100SensorAdapter.dll` and `MFS100EngineAdapter.dll` with it to run in standard Windows mode **without** Test Signing. See [Commercial Code Signing](#commercial-code-signing--production-deployment).
+4. Confirm you receive: `The operation completed successfully.`
+5. **Restart your computer.**
+   *(After restarting, a subtle "Test Mode" watermark may appear in the bottom-right corner of the desktop. This confirms Test Signing is active).*
 
 ---
 
-### Step 2: Download & Register WBF Adapters
+### Step 3: Install Official Mantra Driver & Connect Device
+
+1. Download and install the official **Mantra MFS100 Driver v9.0.2.5** (installed to `C:\Program Files\Mantra\MFS100\Driver`).
+   *(Note: Do NOT install or run Aadhaar RD Service; RD Service is not required for Windows Hello logon).*
+2. Plug your **Mantra MFS100 scanner** into any USB port.
+3. Confirm the scanner's red optical LED blinks once upon connection.
+
+---
+
+### Step 4: Ensure Windows Hello PIN is Set Up
+
+Windows requires a PIN to be configured on your account before permitting biometric fingerprint setup:
+
+1. Open **Settings** (`Win + I`) > **Accounts** > **Sign-in options**.
+2. Look under **PIN (Windows Hello)**:
+   - If you already have a PIN set up, proceed directly to [Step 5](#step-5-download--register-wbf-adapters).
+   - If not, click **Set up**, follow the prompts, and choose a PIN.
+
+---
+
+### Step 5: Download & Register WBF Adapters
 
 1. Download the latest release package: [`Mantra_MFS100_Windows_Hello_v1.0.0.zip`](dist/Mantra_MFS100_Windows_Hello_v1.0.0.zip).
-2. Extract the ZIP to a permanent folder (e.g., `C:\MantraWBF`).
-3. Right-click **`7_Register_WBF_Windows_Hello.bat`** and select **Run as administrator**.
+2. Extract the ZIP to a permanent folder on your PC (e.g., `C:\MantraWBF` or in your Documents folder). Do not delete this folder after setup.
+3. In the extracted folder, right-click **`7_Register_WBF_Windows_Hello.bat`** and select **Run as administrator**.
 4. The automated installer will:
    - Install the driver certificate into `Trusted Root Certification Authorities` and `Trusted Publishers`.
    - Install and launch the background **MFS100 Bridge Service** (`MFS100BridgeSvc.exe`).
@@ -68,14 +104,17 @@ Because the custom WBF adapters are digitally signed with a local root certifica
 
 ---
 
-### Step 3: Enroll in Windows Settings & Test Logon
+### Step 6: Enroll Fingerprint in Windows Settings & Test Logon
 
 1. Open **Settings** (`Win + I`) > **Accounts** > **Sign-in options**.
 2. Under **Fingerprint recognition (Windows Hello)**, click **Set up** > **Get started**.
-3. Enter your account PIN when prompted.
-4. Place and lift your finger on the Mantra MFS100 sensor when the optical LED turns on.
-5. Once completed, lock your computer (**Win + L**).
-6. Touch the sensor with your registered finger — **Windows will instantly recognize your fingerprint and unlock!**
+3. Enter your Windows Hello PIN when prompted.
+4. When the Mantra MFS100 red optical sensor lights up:
+   - Place your finger flat on the scanner.
+   - When Windows prompts, lift and touch again from slightly different angles.
+5. Click **Close** once enrollment completes.
+6. Now lock your PC: press **Win + L**.
+7. Touch the Mantra scanner with your registered finger — **Windows will instantly recognize your fingerprint and unlock!**
 
 ---
 
