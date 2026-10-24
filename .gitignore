@@ -35,4 +35,6 @@ $RECYCLE.BIN/
 *.dat
 *.iso
 /mfs100driver*.exe
+scratch/
+
 
