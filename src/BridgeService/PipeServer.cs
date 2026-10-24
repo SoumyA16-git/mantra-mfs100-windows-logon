@@ -177,6 +177,14 @@ namespace MFS100BridgeSvc
                 }
                 finally
                 {
+                    // Signal cancel event so in-flight scanner captures (e.g. from lock screen or sleep) stop immediately
+                    try
+                    {
+                        using var cancelEvent = EventWaitHandle.OpenExisting(@"Global\MFS100_CancelCapture");
+                        cancelEvent.Set();
+                    }
+                    catch { }
+
                     ServiceLog.Info("Client disconnected from named pipe.");
                 }
             }

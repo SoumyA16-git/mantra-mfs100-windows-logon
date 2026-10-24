@@ -1,6 +1,8 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Threading;
 using MANTRA;
 
@@ -51,8 +53,9 @@ namespace MFS100Worker
     {
         const int MIN_CAPTURE_QUALITY = 30;
 
-        MFS100? _mfs;
-        bool    _initialized;
+        MFS100?         _mfs;
+        bool            _initialized;
+        EventWaitHandle? _cancelEvent;
 
         public SdkManager()
         {
@@ -63,6 +66,39 @@ namespace MFS100Worker
             catch (Exception ex)
             {
                 WorkerLog.Error($"Failed to instantiate MFS100: {ex}");
+            }
+
+            InitCancelEvent();
+        }
+
+        private void InitCancelEvent()
+        {
+            try
+            {
+                var eventSecurity = new EventWaitHandleSecurity();
+                var rule = new EventWaitHandleAccessRule(
+                    new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+                    EventWaitHandleRights.FullControl,
+                    AccessControlType.Allow);
+                eventSecurity.AddAccessRule(rule);
+
+                bool createdNew;
+                _cancelEvent = new EventWaitHandle(
+                    false,
+                    EventResetMode.AutoReset,
+                    @"Global\MFS100_CancelCapture",
+                    out createdNew,
+                    eventSecurity);
+                WorkerLog.Info($"Global\\MFS100_CancelCapture event initialized (createdNew={createdNew})");
+            }
+            catch (Exception ex)
+            {
+                WorkerLog.Warn($"Could not create Global cancel event with security, falling back: {ex.Message}");
+                try
+                {
+                    _cancelEvent = new EventWaitHandle(false, EventResetMode.AutoReset, @"Global\MFS100_CancelCapture");
+                }
+                catch { }
             }
         }
 
@@ -169,6 +205,8 @@ namespace MFS100Worker
 
         private CaptureResult? TryFastCapture(int timeoutMs, Stopwatch sw)
         {
+            _cancelEvent?.Reset();
+
             int width = MFS100Native.MFS100GetWidth();
             int height = MFS100Native.MFS100GetHeight();
             if (width <= 0 || height <= 0)
@@ -197,6 +235,15 @@ namespace MFS100Worker
 
                 while (sw.ElapsedMilliseconds < timeoutMs)
                 {
+                    // Check if capture was cancelled (e.g. system entering sleep or cancelled by WBF)
+                    if (_cancelEvent != null && _cancelEvent.WaitOne(0))
+                    {
+                        MFS100Native.MFS100StopXcan();
+                        sw.Stop();
+                        WorkerLog.Info($"FastCapture cancelled via cancel event signal after {sw.ElapsedMilliseconds}ms.");
+                        return Fail(-1141, "Capture cancelled");
+                    }
+
                     int fRet = MFS100Native.MFS100GetFrame(frameBuf);
                     if (fRet == 0)
                     {
@@ -274,6 +321,7 @@ namespace MFS100Worker
             }
             finally
             {
+                try { MFS100Native.MFS100StopXcan(); } catch { }
                 Marshal.FreeHGlobal(frameBuf);
                 Marshal.FreeHGlobal(isoBuf);
                 Marshal.FreeHGlobal(ansiBuf);
@@ -345,6 +393,7 @@ namespace MFS100Worker
             }
             finally
             {
+                try { MFS100Native.MFS100StopXcan(); } catch { }
                 Marshal.FreeHGlobal(frameBuf);
                 Marshal.FreeHGlobal(isoBuf);
                 Marshal.FreeHGlobal(ansiBuf);
@@ -432,25 +481,22 @@ namespace MFS100Worker
 
         bool EnsureReady(out string errorMsg)
         {
-            if (_mfs == null || !_initialized)
+            if (_mfs == null) _mfs = new MFS100();
+
+            if (!_initialized || !_mfs.IsConnected())
             {
-                errorMsg = "SDK not initialised";
-                return false;
-            }
-            try
-            {
-                if (!_mfs.IsConnected())
+                WorkerLog.Info("Device not initialized or reconnected after sleep. Re-initializing SDK...");
+                try { _mfs.Uninit(); } catch { }
+                _initialized = false;
+
+                var (initOk, initErr) = Init();
+                if (!initOk)
                 {
-                    errorMsg = "MFS100 device disconnected";
-                    WorkerLog.Warn("IsConnected() returned false mid-operation");
+                    errorMsg = initErr;
                     return false;
                 }
             }
-            catch (Exception ex)
-            {
-                errorMsg = $"IsConnected check failed: {ex.Message}";
-                return false;
-            }
+
             errorMsg = "";
             return true;
         }
@@ -461,7 +507,12 @@ namespace MFS100Worker
         static MatchResult FailMatch(int code, string msg) =>
             new MatchResult { Ok = false, ErrorCode = code, ErrorMsg = msg };
 
-        public void Dispose() => Uninit();
+        public void Dispose()
+        {
+            Uninit();
+            try { _cancelEvent?.Dispose(); } catch { }
+            _cancelEvent = null;
+        }
     }
 
     internal static class MFS100Native

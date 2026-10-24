@@ -272,6 +272,13 @@ static HRESULT WINAPI SensorAdapterDetach(PWINBIO_PIPELINE Pipeline)
     WbfLog(L"[MFS100SensorAdapter] SensorAdapterDetach called.");
     if (Pipeline == NULL || Pipeline->SensorContext == NULL) return E_POINTER;
 
+    HANDLE hCancel = OpenEventW(EVENT_MODIFY_STATE, FALSE, L"Global\\MFS100_CancelCapture");
+    if (hCancel)
+    {
+        SetEvent(hCancel);
+        CloseHandle(hCancel);
+    }
+
     PMFS100_SENSOR_CONTEXT pCtx = (PMFS100_SENSOR_CONTEXT)Pipeline->SensorContext;
     if (pCtx->hCancelEvent) CloseHandle(pCtx->hCancelEvent);
     if (pCtx->pCurrentSample) HeapFree(GetProcessHeap(), 0, pCtx->pCurrentSample);
@@ -405,6 +412,15 @@ static HRESULT WINAPI SensorAdapterExportSensorData(PWINBIO_PIPELINE Pipeline, P
 static HRESULT WINAPI SensorAdapterCancel(PWINBIO_PIPELINE Pipeline)
 {
     WbfLog(L"[MFS100SensorAdapter] SensorAdapterCancel called.");
+
+    // Signal global cancel event so worker immediately stops optical scan (turns off red LED)
+    HANDLE hCancel = OpenEventW(EVENT_MODIFY_STATE, FALSE, L"Global\\MFS100_CancelCapture");
+    if (hCancel)
+    {
+        SetEvent(hCancel);
+        CloseHandle(hCancel);
+    }
+
     if (g_CaptureTask.hActivePipe != NULL)
     {
         CancelIoEx(g_CaptureTask.hActivePipe, NULL);

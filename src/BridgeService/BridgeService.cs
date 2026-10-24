@@ -1,5 +1,6 @@
 using System;
 using System.ServiceProcess;
+using System.Threading;
 
 namespace MFS100BridgeSvc
 {
@@ -15,7 +16,24 @@ namespace MFS100BridgeSvc
             ServiceName = ServiceNameIdentifier;
             CanStop = true;
             CanShutdown = true;
+            CanHandlePowerEvent = true;
             AutoLog = true;
+        }
+
+        protected override bool OnPowerEvent(PowerBroadcastStatus powerStatus)
+        {
+            ServiceLog.Info($"Power event received: {powerStatus}");
+            if (powerStatus == PowerBroadcastStatus.Suspend || (int)powerStatus == 0x0004)
+            {
+                ServiceLog.Info("System is suspending/sleeping. Stopping sensor capture...");
+                try
+                {
+                    using var cancelEvent = EventWaitHandle.OpenExisting(@"Global\MFS100_CancelCapture");
+                    cancelEvent.Set();
+                }
+                catch { }
+            }
+            return base.OnPowerEvent(powerStatus);
         }
 
         protected override void OnStart(string[] args)
