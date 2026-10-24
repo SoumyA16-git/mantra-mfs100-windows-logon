@@ -109,29 +109,62 @@ static BOOL ReadJsonLine(HANDLE hPipe, char* pBuffer, DWORD maxBytes)
     }
 }
 
+static HANDLE ConnectToBridgePipe(void)
+{
+    for (int retry = 0; retry < 50; retry++)
+    {
+        HANDLE hPipe = CreateFileW(L"\\\\.\\pipe\\MFS100Bridge", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+        if (hPipe != INVALID_HANDLE_VALUE)
+        {
+            return hPipe;
+        }
+        DWORD dwErr = GetLastError();
+        if (dwErr == ERROR_PIPE_BUSY)
+        {
+            WaitNamedPipeW(L"\\\\.\\pipe\\MFS100Bridge", 1000);
+        }
+        else
+        {
+            Sleep(50);
+        }
+    }
+    return INVALID_HANDLE_VALUE;
+}
+
 static BOOL WorkerMatch(const char* szProbeB64, const char* szGalleryB64, int* pScore)
 {
     *pScore = 0;
-    HANDLE hPipe = CreateFileW(L"\\\\.\\pipe\\MFS100Bridge", GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE hPipe = ConnectToBridgePipe();
     if (hPipe == INVALID_HANDLE_VALUE)
     {
         WbfLog(L"[MFS100EngineAdapter] WorkerMatch failed to connect to pipe: %lu", GetLastError());
         return FALSE;
     }
 
-    char szReq[16384];
-    StringCchPrintfA(szReq, sizeof(szReq), "{\"cmd\":\"match\",\"probe\":\"%s\",\"gallery\":\"%s\"}\n", szProbeB64, szGalleryB64);
+    size_t cbReq = strlen(szProbeB64) + strlen(szGalleryB64) + 128;
+    char* pszReq = (char*)HeapAlloc(GetProcessHeap(), 0, cbReq);
+    if (!pszReq)
+    {
+        CloseHandle(hPipe);
+        return FALSE;
+    }
+
+    StringCchPrintfA(pszReq, cbReq, "{\"cmd\":\"match\",\"probe\":\"%s\",\"gallery\":\"%s\"}\n", szProbeB64, szGalleryB64);
     DWORD dwWritten = 0;
-    WriteFile(hPipe, szReq, (DWORD)strlen(szReq), &dwWritten, NULL);
+    WriteFile(hPipe, pszReq, (DWORD)strlen(pszReq), &dwWritten, NULL);
+    HeapFree(GetProcessHeap(), 0, pszReq);
 
     char szRsp[8192];
     BOOL bSuccess = FALSE;
     if (ReadJsonLine(hPipe, szRsp, sizeof(szRsp)))
     {
+        WbfLog(L"[MFS100EngineAdapter] WorkerMatch raw response: %S", szRsp);
         const char* pScoreStr = strstr(szRsp, "\"score\":");
+        if (!pScoreStr) pScoreStr = strstr(szRsp, "\"score\" :");
         if (pScoreStr)
         {
-            *pScore = atoi(pScoreStr + 8);
+            while (*pScoreStr && (*pScoreStr < '0' || *pScoreStr > '9') && *pScoreStr != '-') pScoreStr++;
+            *pScore = atoi(pScoreStr);
             bSuccess = TRUE;
         }
     }
@@ -162,11 +195,13 @@ static BOOL ComputeTemplateHash(PMFS100_ENGINE_CONTEXT pCtx, const void* pTempla
 
         if (CryptCreateHash(hProv, algId, 0, 0, &hHash))
         {
-            CryptHashData(hHash, (const BYTE*)pTemplate, (DWORD)cbTemplate, 0);
-            DWORD dwHashLen = sizeof(pCtx->EnrollmentHash);
-            if (CryptGetHashParam(hHash, HP_HASHVAL, pCtx->EnrollmentHash, &dwHashLen, 0))
+            if (CryptHashData(hHash, (const BYTE*)pTemplate, (DWORD)cbTemplate, 0))
             {
-                pCtx->cbEnrollmentHash = dwHashLen;
+                DWORD dwHashLen = sizeof(pCtx->EnrollmentHash);
+                if (CryptGetHashParam(hHash, HP_HASHVAL, pCtx->EnrollmentHash, &dwHashLen, 0))
+                {
+                    pCtx->cbEnrollmentHash = dwHashLen;
+                }
             }
             CryptDestroyHash(hHash);
         }
@@ -179,10 +214,20 @@ static BOOL CompareIdentity(const WINBIO_IDENTITY* pA, const WINBIO_IDENTITY* pB
 {
     if (!pA || !pB) return FALSE;
     if (pA->Type == WINBIO_ID_TYPE_WILDCARD || pB->Type == WINBIO_ID_TYPE_WILDCARD) return TRUE;
+    if (pA->Type == WINBIO_ID_TYPE_NULL || pB->Type == WINBIO_ID_TYPE_NULL) return TRUE;
     if (pA->Type != pB->Type) return FALSE;
     if (pA->Type == WINBIO_ID_TYPE_SID)
     {
-        return EqualSid((PSID)pA->Value.AccountSid.Data, (PSID)pB->Value.AccountSid.Data);
+        if (pA->Value.AccountSid.Size > 0 && pA->Value.AccountSid.Size == pB->Value.AccountSid.Size)
+        {
+            if (memcmp(pA->Value.AccountSid.Data, pB->Value.AccountSid.Data, pA->Value.AccountSid.Size) == 0)
+                return TRUE;
+        }
+        if (IsValidSid((PSID)pA->Value.AccountSid.Data) && IsValidSid((PSID)pB->Value.AccountSid.Data))
+        {
+            return EqualSid((PSID)pA->Value.AccountSid.Data, (PSID)pB->Value.AccountSid.Data);
+        }
+        return FALSE;
     }
     if (pA->Type == WINBIO_ID_TYPE_GUID)
     {
@@ -484,7 +529,8 @@ static HRESULT WINAPI EngineAdapterDiscardEnrollment(PWINBIO_PIPELINE Pipeline)
 
 static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, PWINBIO_IDENTITY Identity, WINBIO_BIOMETRIC_SUBTYPE SubFactor, PBOOLEAN Match, PUCHAR *PayloadBlob, PSIZE_T PayloadBlobSize, PUCHAR *HashValue, PSIZE_T HashSize, PWINBIO_REJECT_DETAIL RejectDetail)
 {
-    WbfLog(L"[MFS100EngineAdapter] EngineAdapterVerifyFeatureSet called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterVerifyFeatureSet called: SubFactor=0x%02X, IdentityType=%lu",
+           SubFactor, Identity ? Identity->Type : 0xFFFFFFFF);
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || Match == NULL || RejectDetail == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
@@ -495,7 +541,11 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
     if (HashValue) *HashValue = NULL;
     if (HashSize) *HashSize = 0;
 
-    if (pCtx->cbCurrentFeatureSet == 0) return WINBIO_E_NO_CAPTURE_DATA;
+    if (pCtx->cbCurrentFeatureSet == 0)
+    {
+        WbfLog(L"[MFS100EngineAdapter] VerifyFeatureSet failed: cbCurrentFeatureSet is 0!");
+        return WINBIO_E_NO_CAPTURE_DATA;
+    }
 
     DWORD cchProbe = 0;
     CryptBinaryToStringA(pCtx->CurrentFeatureSet, (DWORD)pCtx->cbCurrentFeatureSet, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &cchProbe);
@@ -513,18 +563,30 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
             HRESULT hrRecord = Pipeline->StorageInterface->GetCurrentRecord(Pipeline, &record);
             if (SUCCEEDED(hrRecord) && record.TemplateBlob && record.TemplateBlobSize > 0)
             {
-                if (Identity == NULL || CompareIdentity(record.Identity, Identity))
+                BOOL idMatch = (Identity == NULL || CompareIdentity(record.Identity, Identity));
+                BOOL subMatch = (SubFactor == WINBIO_SUBTYPE_NO_INFORMATION ||
+                                 SubFactor == WINBIO_SUBTYPE_ANY ||
+                                 record.SubFactor == WINBIO_SUBTYPE_NO_INFORMATION ||
+                                 record.SubFactor == WINBIO_SUBTYPE_ANY ||
+                                 record.SubFactor == SubFactor);
+
+                WbfLog(L"[MFS100EngineAdapter] Storage record: recSub=0x%02X reqSub=0x%02X (idMatch=%d, subMatch=%d, templSize=%llu, payloadSize=%llu)",
+                       record.SubFactor, SubFactor, idMatch, subMatch, record.TemplateBlobSize, record.PayloadBlobSize);
+
+                if (idMatch && subMatch)
                 {
-                    if (SubFactor == WINBIO_SUBTYPE_NO_INFORMATION || record.SubFactor == SubFactor)
+                    DWORD cchGallery = 0;
+                    CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &cchGallery);
+                    char* pszGallery = (char*)HeapAlloc(GetProcessHeap(), 0, cchGallery + 1);
+                    if (pszGallery)
                     {
-                        DWORD cchGallery = 0;
-                        CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &cchGallery);
-                        char* pszGallery = (char*)HeapAlloc(GetProcessHeap(), 0, cchGallery + 1);
-                        if (pszGallery)
+                        CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, pszGallery, &cchGallery);
+                        int score = 0;
+                        if (WorkerMatch(pszProbe, pszGallery, &score))
                         {
-                            CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, pszGallery, &cchGallery);
-                            int score = 0;
-                            if (WorkerMatch(pszProbe, pszGallery, &score) && score >= 400)
+                            WbfLog(L"[MFS100EngineAdapter] Verify: SubFactor=0x%02X match score=%d (threshold=200)",
+                                   record.SubFactor, score);
+                            if (score >= 200)
                             {
                                 *Match = TRUE;
                                 bFound = TRUE;
@@ -535,8 +597,9 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
 
                                 if (record.PayloadBlob && record.PayloadBlobSize > 0)
                                 {
-                                    memcpy(pCtx->MatchedPayloadBlob, record.PayloadBlob, record.PayloadBlobSize);
-                                    pCtx->cbMatchedPayloadBlob = record.PayloadBlobSize;
+                                    SIZE_T toCopy = min(record.PayloadBlobSize, sizeof(pCtx->MatchedPayloadBlob));
+                                    memcpy(pCtx->MatchedPayloadBlob, record.PayloadBlob, toCopy);
+                                    pCtx->cbMatchedPayloadBlob = toCopy;
                                     if (PayloadBlob) *PayloadBlob = pCtx->MatchedPayloadBlob;
                                     if (PayloadBlobSize) *PayloadBlobSize = pCtx->cbMatchedPayloadBlob;
                                 }
@@ -552,8 +615,8 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
                                 HeapFree(GetProcessHeap(), 0, pszGallery);
                                 break;
                             }
-                            HeapFree(GetProcessHeap(), 0, pszGallery);
                         }
+                        HeapFree(GetProcessHeap(), 0, pszGallery);
                     }
                 }
             }
@@ -563,6 +626,7 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
     }
 
     HeapFree(GetProcessHeap(), 0, pszProbe);
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterVerifyFeatureSet returning Match=%d", *Match);
     return S_OK;
 }
 
@@ -603,34 +667,40 @@ static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline,
                 {
                     CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, pszGallery, &cchGallery);
                     int score = 0;
-                    if (WorkerMatch(pszProbe, pszGallery, &score) && score >= 400)
+                    if (WorkerMatch(pszProbe, pszGallery, &score))
                     {
-                        if (record.Identity) *Identity = *record.Identity;
-                        *SubFactor = record.SubFactor;
-                        bFound = TRUE;
-
-                        ComputeTemplateHash(pCtx, record.TemplateBlob, record.TemplateBlobSize);
-                        if (HashValue) *HashValue = (pCtx->cbEnrollmentHash > 0) ? pCtx->EnrollmentHash : NULL;
-                        if (HashSize) *HashSize = pCtx->cbEnrollmentHash;
-
-                        if (record.PayloadBlob && record.PayloadBlobSize > 0)
+                        WbfLog(L"[MFS100EngineAdapter] Identify: Record SubFactor=0x%02X match score=%d (threshold=200)",
+                               record.SubFactor, score);
+                        if (score >= 200)
                         {
-                            memcpy(pCtx->MatchedPayloadBlob, record.PayloadBlob, record.PayloadBlobSize);
-                            pCtx->cbMatchedPayloadBlob = record.PayloadBlobSize;
-                            if (PayloadBlob) *PayloadBlob = pCtx->MatchedPayloadBlob;
-                            if (PayloadBlobSize) *PayloadBlobSize = pCtx->cbMatchedPayloadBlob;
-                        }
-                        else
-                        {
-                            pCtx->cbMatchedPayloadBlob = 0;
-                            if (PayloadBlob) *PayloadBlob = NULL;
-                            if (PayloadBlobSize) *PayloadBlobSize = 0;
-                        }
+                            if (record.Identity) *Identity = *record.Identity;
+                            *SubFactor = record.SubFactor;
+                            bFound = TRUE;
 
-                        WbfLog(L"[MFS100EngineAdapter] Identify matched identity! Score=%d HashSize=%llu PayloadSize=%llu",
-                               score, pCtx->cbEnrollmentHash, pCtx->cbMatchedPayloadBlob);
-                        HeapFree(GetProcessHeap(), 0, pszGallery);
-                        break;
+                            ComputeTemplateHash(pCtx, record.TemplateBlob, record.TemplateBlobSize);
+                            if (HashValue) *HashValue = (pCtx->cbEnrollmentHash > 0) ? pCtx->EnrollmentHash : NULL;
+                            if (HashSize) *HashSize = pCtx->cbEnrollmentHash;
+
+                            if (record.PayloadBlob && record.PayloadBlobSize > 0)
+                            {
+                                SIZE_T toCopy = min(record.PayloadBlobSize, sizeof(pCtx->MatchedPayloadBlob));
+                                memcpy(pCtx->MatchedPayloadBlob, record.PayloadBlob, toCopy);
+                                pCtx->cbMatchedPayloadBlob = toCopy;
+                                if (PayloadBlob) *PayloadBlob = pCtx->MatchedPayloadBlob;
+                                if (PayloadBlobSize) *PayloadBlobSize = pCtx->cbMatchedPayloadBlob;
+                            }
+                            else
+                            {
+                                pCtx->cbMatchedPayloadBlob = 0;
+                                if (PayloadBlob) *PayloadBlob = NULL;
+                                if (PayloadBlobSize) *PayloadBlobSize = 0;
+                            }
+
+                            WbfLog(L"[MFS100EngineAdapter] Identify matched identity! Score=%d HashSize=%llu PayloadSize=%llu",
+                                   score, pCtx->cbEnrollmentHash, pCtx->cbMatchedPayloadBlob);
+                            HeapFree(GetProcessHeap(), 0, pszGallery);
+                            break;
+                        }
                     }
                     HeapFree(GetProcessHeap(), 0, pszGallery);
                 }
