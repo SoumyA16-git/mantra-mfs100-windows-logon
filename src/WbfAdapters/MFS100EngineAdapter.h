@@ -31,6 +31,8 @@ typedef struct _MFS100_ENGINE_CONTEXT {
     SIZE_T cbEnrollmentTemplate;
     UCHAR EnrollmentHash[64];
     SIZE_T cbEnrollmentHash;
+    UCHAR MatchedPayloadBlob[8192];
+    SIZE_T cbMatchedPayloadBlob;
     char szSelectedHashOid[64];
     DWORD dwEnrollmentCount;
     DWORD dwEnrollmentTarget;
