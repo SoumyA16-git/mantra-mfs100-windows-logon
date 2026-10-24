@@ -20,13 +20,13 @@ static void WriteRegStrings(HKEY hKey)
 {
     const wchar_t szSensor[] = L"MFS100SensorAdapter.dll";
     const wchar_t szEngine[] = L"MFS100EngineAdapter.dll";
-    const wchar_t szStorage[] = L"winbiostorageadapter.dll";
+    const wchar_t szStorage[] = L"WinBioStorageAdapter.dll";
     DWORD dwOne = 1;
 
     RegSetValueExW(hKey, L"SensorAdapterBinary", 0, REG_SZ, (const BYTE*)szSensor, (DWORD)(wcslen(szSensor) + 1) * sizeof(WCHAR));
     RegSetValueExW(hKey, L"EngineAdapterBinary", 0, REG_SZ, (const BYTE*)szEngine, (DWORD)(wcslen(szEngine) + 1) * sizeof(WCHAR));
     RegSetValueExW(hKey, L"StorageAdapterBinary", 0, REG_SZ, (const BYTE*)szStorage, (DWORD)(wcslen(szStorage) + 1) * sizeof(WCHAR));
-    RegSetValueExW(hKey, L"DatabaseId", 0, REG_SZ, (const BYTE*)szDbGuid, (DWORD)(wcslen(szDbGuid) + 1) * sizeof(WCHAR));
+    RegSetValueExW(hKey, L"DatabaseId", 0, REG_SZ, (const BYTE*)szDbRaw, (DWORD)(wcslen(szDbRaw) + 1) * sizeof(WCHAR));
     RegSetValueExW(hKey, L"SensorMode", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
     RegSetValueExW(hKey, L"SystemSensor", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
     RegSetValueExW(hKey, L"Exclusive", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
@@ -34,82 +34,71 @@ static void WriteRegStrings(HKEY hKey)
 
 static void ConfigureGlobalWinBioDatabases()
 {
-    // Ensure WinBioDatabase folder exists
     CreateDirectoryW(L"C:\\Windows\\System32\\WinBioDatabase", NULL);
 
     WCHAR szFilePath[MAX_PATH];
     StringCchPrintfW(szFilePath, ARRAYSIZE(szFilePath), L"C:\\Windows\\System32\\WinBioDatabase\\%s.DAT", szDbRaw);
 
-    // 1. Service Databases key (read directly by WbioSrvc) - Write BOTH with and without braces
-    const wchar_t* pGuids[2] = { szDbGuid, szDbRaw };
-    for (int g = 0; g < 2; g++)
+    // 1. Service Database key: HKLM\SYSTEM\CurrentControlSet\Services\WbioSrvc\Databases\{B16F0239-0144-4284-9D27-E4B283626155}
+    WCHAR szServiceDbKey[512];
+    StringCchPrintfW(szServiceDbKey, ARRAYSIZE(szServiceDbKey),
+                     L"SYSTEM\\CurrentControlSet\\Services\\WbioSrvc\\Databases\\%s", szDbGuid);
+    HKEY hSvcDb = NULL;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szServiceDbKey, 0, NULL, 0, KEY_WRITE, NULL, &hSvcDb, NULL) == ERROR_SUCCESS)
     {
-        WCHAR szServiceDbKey[512];
-        StringCchPrintfW(szServiceDbKey, ARRAYSIZE(szServiceDbKey),
-                         L"SYSTEM\\CurrentControlSet\\Services\\WbioSrvc\\Databases\\%s", pGuids[g]);
-        HKEY hSvcDb = NULL;
-        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szServiceDbKey, 0, NULL, 0, KEY_WRITE, NULL, &hSvcDb, NULL) == ERROR_SUCCESS)
-        {
-            DWORD dwOne = 1;
-            DWORD dwZero = 0;
-            DWORD dwType = 8; // WINBIO_TYPE_FINGERPRINT
-            DWORD dwSize = 32;
-            const wchar_t szEmpty[] = L"";
-            const wchar_t szFormat[] = L"00000000-0000-0000-0000-000000000000";
+        DWORD dwOne = 1;
+        DWORD dwZero = 0;
+        DWORD dwType = 8; // WINBIO_TYPE_FINGERPRINT
+        DWORD dwSize = 32;
+        const wchar_t szEmpty[] = L"";
+        const wchar_t szFormat[] = L"00000000-0000-0000-0000-000000000000";
 
-            RegSetValueExW(hSvcDb, L"Attributes", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
-            RegSetValueExW(hSvcDb, L"AutoCreate", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
-            RegSetValueExW(hSvcDb, L"AutoName", 0, REG_DWORD, (const BYTE*)&dwZero, sizeof(dwZero));
-            RegSetValueExW(hSvcDb, L"BiometricType", 0, REG_DWORD, (const BYTE*)&dwType, sizeof(dwType));
-            RegSetValueExW(hSvcDb, L"ConnectionString", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
-            RegSetValueExW(hSvcDb, L"FilePath", 0, REG_SZ, (const BYTE*)szFilePath, (DWORD)(wcslen(szFilePath) + 1) * sizeof(WCHAR));
-            RegSetValueExW(hSvcDb, L"Format", 0, REG_SZ, (const BYTE*)szFormat, (DWORD)(wcslen(szFormat) + 1) * sizeof(WCHAR));
-            RegSetValueExW(hSvcDb, L"InitialSize", 0, REG_DWORD, (const BYTE*)&dwSize, sizeof(dwSize));
-            RegCloseKey(hSvcDb);
-        }
+        RegSetValueExW(hSvcDb, L"Attributes", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
+        RegSetValueExW(hSvcDb, L"AutoCreate", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
+        RegSetValueExW(hSvcDb, L"AutoName", 0, REG_DWORD, (const BYTE*)&dwZero, sizeof(dwZero));
+        RegSetValueExW(hSvcDb, L"BiometricType", 0, REG_DWORD, (const BYTE*)&dwType, sizeof(dwType));
+        RegSetValueExW(hSvcDb, L"ConnectionString", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
+        RegSetValueExW(hSvcDb, L"FilePath", 0, REG_SZ, (const BYTE*)szFilePath, (DWORD)(wcslen(szFilePath) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hSvcDb, L"Format", 0, REG_SZ, (const BYTE*)szFormat, (DWORD)(wcslen(szFormat) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hSvcDb, L"InitialSize", 0, REG_DWORD, (const BYTE*)&dwSize, sizeof(dwSize));
+        RegCloseKey(hSvcDb);
+        printf("[OK] WbioSrvc service database registry entry configured.\n");
     }
-    printf("[OK] WbioSrvc service database registry entries configured.\n");
 
-    // 2. WinBio Software Databases key
-    for (int g = 0; g < 2; g++)
+    // 2. WinBio Software Databases key: HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WinBio\Databases\{B16F0239-0144-4284-9D27-E4B283626155}
+    WCHAR szSoftDbKey[512];
+    StringCchPrintfW(szSoftDbKey, ARRAYSIZE(szSoftDbKey),
+                     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WinBio\\Databases\\%s", szDbGuid);
+    HKEY hSoftDb = NULL;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szSoftDbKey, 0, NULL, 0, KEY_WRITE, NULL, &hSoftDb, NULL) == ERROR_SUCCESS)
     {
-        WCHAR szSoftDbKey[512];
-        StringCchPrintfW(szSoftDbKey, ARRAYSIZE(szSoftDbKey),
-                         L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WinBio\\Databases\\%s", pGuids[g]);
-        HKEY hSoftDb = NULL;
-        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szSoftDbKey, 0, NULL, 0, KEY_WRITE, NULL, &hSoftDb, NULL) == ERROR_SUCCESS)
-        {
-            DWORD dwFactor = 8; // WINBIO_TYPE_FINGERPRINT
-            DWORD dwType = 1;
-            DWORD dwAttr = 1;
-            DWORD dwAuto = 1;
-            const wchar_t szEmpty[] = L"";
+        DWORD dwFactor = 8; // WINBIO_TYPE_FINGERPRINT
+        DWORD dwType = 1;
+        DWORD dwAttr = 1;
+        DWORD dwAuto = 1;
+        const wchar_t szEmpty[] = L"";
 
-            RegSetValueExW(hSoftDb, L"BiometricFactor", 0, REG_DWORD, (const BYTE*)&dwFactor, sizeof(dwFactor));
-            RegSetValueExW(hSoftDb, L"DatabaseType", 0, REG_DWORD, (const BYTE*)&dwType, sizeof(dwType));
-            RegSetValueExW(hSoftDb, L"Attributes", 0, REG_DWORD, (const BYTE*)&dwAttr, sizeof(dwAttr));
-            RegSetValueExW(hSoftDb, L"AutoCreate", 0, REG_DWORD, (const BYTE*)&dwAuto, sizeof(dwAuto));
-            RegSetValueExW(hSoftDb, L"FilePath", 0, REG_SZ, (const BYTE*)szFilePath, (DWORD)(wcslen(szFilePath) + 1) * sizeof(WCHAR));
-            RegSetValueExW(hSoftDb, L"ConnectionString", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
-            RegCloseKey(hSoftDb);
-        }
+        RegSetValueExW(hSoftDb, L"BiometricFactor", 0, REG_DWORD, (const BYTE*)&dwFactor, sizeof(dwFactor));
+        RegSetValueExW(hSoftDb, L"DatabaseType", 0, REG_DWORD, (const BYTE*)&dwType, sizeof(dwType));
+        RegSetValueExW(hSoftDb, L"Attributes", 0, REG_DWORD, (const BYTE*)&dwAttr, sizeof(dwAttr));
+        RegSetValueExW(hSoftDb, L"AutoCreate", 0, REG_DWORD, (const BYTE*)&dwAuto, sizeof(dwAuto));
+        RegSetValueExW(hSoftDb, L"FilePath", 0, REG_SZ, (const BYTE*)szFilePath, (DWORD)(wcslen(szFilePath) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hSoftDb, L"ConnectionString", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
+        RegCloseKey(hSoftDb);
+        printf("[OK] Software WinBio database registry entry configured.\n");
     }
-    printf("[OK] Software WinBio database registry entries configured.\n");
 
     // 3. WinBio Software Global Configurations key
-    for (int g = 0; g < 2; g++)
+    WCHAR szSoftCfgKey[512];
+    StringCchPrintfW(szSoftCfgKey, ARRAYSIZE(szSoftCfgKey),
+                     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WinBio\\Configurations\\%s", szDbGuid);
+    HKEY hSoftCfg = NULL;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szSoftCfgKey, 0, NULL, 0, KEY_WRITE, NULL, &hSoftCfg, NULL) == ERROR_SUCCESS)
     {
-        WCHAR szSoftCfgKey[512];
-        StringCchPrintfW(szSoftCfgKey, ARRAYSIZE(szSoftCfgKey),
-                         L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WinBio\\Configurations\\%s", pGuids[g]);
-        HKEY hSoftCfg = NULL;
-        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szSoftCfgKey, 0, NULL, 0, KEY_WRITE, NULL, &hSoftCfg, NULL) == ERROR_SUCCESS)
-        {
-            WriteRegStrings(hSoftCfg);
-            RegCloseKey(hSoftCfg);
-        }
+        WriteRegStrings(hSoftCfg);
+        RegCloseKey(hSoftCfg);
+        printf("[OK] Software WinBio configuration registry entry configured.\n");
     }
-    printf("[OK] Software WinBio configuration registry entries configured.\n");
 
     // 4. Group Policy permissions for Biometrics & Windows Hello
     HKEY hBioPol = NULL;
@@ -139,61 +128,63 @@ static void ConfigureFingerprintVirtualSensor()
 {
     printf("\nConfiguring Mantra MFS100 under Service Providers\\Fingerprint\\Virtual Sensors...\n");
 
-    const wchar_t* pGuids[2] = { szDbGuid, szDbRaw };
-    for (int g = 0; g < 2; g++)
+    // Clean up any legacy unbraced key
+    RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\WbioSrvc\\Service Providers\\Fingerprint\\Virtual Sensors\\B16F0239-0144-4284-9D27-E4B283626155\\Configurations\\0");
+    RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\WbioSrvc\\Service Providers\\Fingerprint\\Virtual Sensors\\B16F0239-0144-4284-9D27-E4B283626155\\Configurations");
+    RegDeleteKeyW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\WbioSrvc\\Service Providers\\Fingerprint\\Virtual Sensors\\B16F0239-0144-4284-9D27-E4B283626155");
+
+    // The official sensor key name MUST have braces: {B16F0239-0144-4284-9D27-E4B283626155}
+    WCHAR szKeyPath[512];
+    StringCchPrintfW(szKeyPath, ARRAYSIZE(szKeyPath),
+                     L"SYSTEM\\CurrentControlSet\\Services\\WbioSrvc\\Service Providers\\Fingerprint\\Virtual Sensors\\%s", szDbGuid);
+
+    HKEY hVSensor = NULL;
+    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szKeyPath, 0, NULL, 0, KEY_WRITE, NULL, &hVSensor, NULL) == ERROR_SUCCESS)
     {
-        WCHAR szKeyPath[512];
-        StringCchPrintfW(szKeyPath, ARRAYSIZE(szKeyPath),
-                         L"SYSTEM\\CurrentControlSet\\Services\\WbioSrvc\\Service Providers\\Fingerprint\\Virtual Sensors\\%s", pGuids[g]);
+        DWORD dwCap = 129; // WINBIO_CAPABILITY_VIRTUAL_SENSOR (0x80) | WINBIO_CAPABILITY_SENSOR (0x01)
+        const wchar_t szDesc[] = L"Mantra MFS100 Fingerprint Scanner";
+        const wchar_t szMfg[] = L"Mantra Softech (I) Pvt Ltd";
+        const wchar_t szModel[] = L"MFS100";
+        const wchar_t szSerial[] = L"8E46E90C49AC";
+        DWORD dwSub = 0;
+        ULONGLONG qwVer = 16777216; // REG_QWORD 0x01000000 (Matches SDK WINBIO_VERSION format)
 
-        HKEY hVSensor = NULL;
-        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szKeyPath, 0, NULL, 0, KEY_WRITE, NULL, &hVSensor, NULL) == ERROR_SUCCESS)
+        RegSetValueExW(hVSensor, L"Capabilities", 0, REG_DWORD, (const BYTE*)&dwCap, sizeof(dwCap));
+        RegSetValueExW(hVSensor, L"DeviceDescription", 0, REG_SZ, (const BYTE*)szDesc, (DWORD)(wcslen(szDesc) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hVSensor, L"Manufacturer", 0, REG_SZ, (const BYTE*)szMfg, (DWORD)(wcslen(szMfg) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hVSensor, L"ModelName", 0, REG_SZ, (const BYTE*)szModel, (DWORD)(wcslen(szModel) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hVSensor, L"SerialNumber", 0, REG_SZ, (const BYTE*)szSerial, (DWORD)(wcslen(szSerial) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hVSensor, L"SubType", 0, REG_DWORD, (const BYTE*)&dwSub, sizeof(dwSub));
+        RegSetValueExW(hVSensor, L"Version", 0, REG_QWORD, (const BYTE*)&qwVer, sizeof(qwVer));
+
+        HKEY hCfgRoot = NULL;
+        if (RegCreateKeyExW(hVSensor, L"Configurations", 0, NULL, 0, KEY_WRITE, NULL, &hCfgRoot, NULL) == ERROR_SUCCESS)
         {
-            DWORD dwCap = 129; // WINBIO_CAPABILITY_VIRTUAL_SENSOR (0x80) | WINBIO_CAPABILITY_SENSOR (0x01)
-            const wchar_t szDesc[] = L"Mantra MFS100 Fingerprint Scanner";
-            const wchar_t szMfg[] = L"Mantra Softech (I) Pvt Ltd";
-            const wchar_t szModel[] = L"MFS100";
-            const wchar_t szSerial[] = L"8E46E90C49AC";
-            DWORD dwSub = 0;
-            DWORD dwVer = 16777216; // 0x01000000
-
-            RegSetValueExW(hVSensor, L"Capabilities", 0, REG_DWORD, (const BYTE*)&dwCap, sizeof(dwCap));
-            RegSetValueExW(hVSensor, L"DeviceDescription", 0, REG_SZ, (const BYTE*)szDesc, (DWORD)(wcslen(szDesc) + 1) * sizeof(WCHAR));
-            RegSetValueExW(hVSensor, L"Manufacturer", 0, REG_SZ, (const BYTE*)szMfg, (DWORD)(wcslen(szMfg) + 1) * sizeof(WCHAR));
-            RegSetValueExW(hVSensor, L"ModelName", 0, REG_SZ, (const BYTE*)szModel, (DWORD)(wcslen(szModel) + 1) * sizeof(WCHAR));
-            RegSetValueExW(hVSensor, L"SerialNumber", 0, REG_SZ, (const BYTE*)szSerial, (DWORD)(wcslen(szSerial) + 1) * sizeof(WCHAR));
-            RegSetValueExW(hVSensor, L"SubType", 0, REG_DWORD, (const BYTE*)&dwSub, sizeof(dwSub));
-            RegSetValueExW(hVSensor, L"Version", 0, REG_DWORD, (const BYTE*)&dwVer, sizeof(dwVer));
-
-            HKEY hCfgRoot = NULL;
-            if (RegCreateKeyExW(hVSensor, L"Configurations", 0, NULL, 0, KEY_WRITE, NULL, &hCfgRoot, NULL) == ERROR_SUCCESS)
-            {
-                const wchar_t szZero[] = L"0";
-                RegSetValueExW(hCfgRoot, L"DefaultConfiguration", 0, REG_SZ, (const BYTE*)szZero, sizeof(szZero));
-                RegCloseKey(hCfgRoot);
-            }
-
-            HKEY hCfg0 = NULL;
-            if (RegCreateKeyExW(hVSensor, L"Configurations\\0", 0, NULL, 0, KEY_WRITE, NULL, &hCfg0, NULL) == ERROR_SUCCESS)
-            {
-                const wchar_t szSensor[] = L"MFS100SensorAdapter.dll";
-                const wchar_t szEngine[] = L"MFS100EngineAdapter.dll";
-                const wchar_t szStorage[] = L"winbiostorageadapter.dll";
-                DWORD dwOne = 1;
-
-                RegSetValueExW(hCfg0, L"SensorAdapterBinary", 0, REG_SZ, (const BYTE*)szSensor, (DWORD)(wcslen(szSensor) + 1) * sizeof(WCHAR));
-                RegSetValueExW(hCfg0, L"EngineAdapterBinary", 0, REG_SZ, (const BYTE*)szEngine, (DWORD)(wcslen(szEngine) + 1) * sizeof(WCHAR));
-                RegSetValueExW(hCfg0, L"StorageAdapterBinary", 0, REG_SZ, (const BYTE*)szStorage, (DWORD)(wcslen(szStorage) + 1) * sizeof(WCHAR));
-                RegSetValueExW(hCfg0, L"DatabaseId", 0, REG_SZ, (const BYTE*)pGuids[g], (DWORD)(wcslen(pGuids[g]) + 1) * sizeof(WCHAR));
-                RegSetValueExW(hCfg0, L"SensorMode", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
-                RegSetValueExW(hCfg0, L"SystemSensor", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
-                RegCloseKey(hCfg0);
-            }
-
-            RegCloseKey(hVSensor);
+            DWORD dwDefault = 0; // REG_DWORD, NOT STRING!
+            RegSetValueExW(hCfgRoot, L"DefaultConfiguration", 0, REG_DWORD, (const BYTE*)&dwDefault, sizeof(dwDefault));
+            RegCloseKey(hCfgRoot);
         }
+
+        HKEY hCfg0 = NULL;
+        if (RegCreateKeyExW(hVSensor, L"Configurations\\0", 0, NULL, 0, KEY_WRITE, NULL, &hCfg0, NULL) == ERROR_SUCCESS)
+        {
+            const wchar_t szSensor[] = L"MFS100SensorAdapter.dll";
+            const wchar_t szEngine[] = L"MFS100EngineAdapter.dll";
+            const wchar_t szStorage[] = L"WinBioStorageAdapter.dll";
+            DWORD dwOne = 1;
+
+            RegSetValueExW(hCfg0, L"SensorAdapterBinary", 0, REG_SZ, (const BYTE*)szSensor, (DWORD)(wcslen(szSensor) + 1) * sizeof(WCHAR));
+            RegSetValueExW(hCfg0, L"EngineAdapterBinary", 0, REG_SZ, (const BYTE*)szEngine, (DWORD)(wcslen(szEngine) + 1) * sizeof(WCHAR));
+            RegSetValueExW(hCfg0, L"StorageAdapterBinary", 0, REG_SZ, (const BYTE*)szStorage, (DWORD)(wcslen(szStorage) + 1) * sizeof(WCHAR));
+            RegSetValueExW(hCfg0, L"DatabaseId", 0, REG_SZ, (const BYTE*)szDbRaw, (DWORD)(wcslen(szDbRaw) + 1) * sizeof(WCHAR));
+            RegSetValueExW(hCfg0, L"SensorMode", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
+            RegSetValueExW(hCfg0, L"SystemSensor", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
+            RegCloseKey(hCfg0);
+        }
+
+        RegCloseKey(hVSensor);
+        printf("[SUCCESS] Registered Mantra MFS100 under Service Providers\\Fingerprint\\Virtual Sensors!\n");
     }
-    printf("[SUCCESS] Registered Mantra MFS100 under Service Providers\\Fingerprint\\Virtual Sensors!\n");
 }
 
 static BOOL FindMantraDeviceNode(HDEVINFO* phDevInfo, SP_DEVINFO_DATA* pDevData, WCHAR* pszInstanceId, DWORD cchInstanceId)
@@ -290,8 +281,8 @@ int main()
             HKEY hCfgRoot = NULL;
             if (RegCreateKeyExW(hIfKey, L"WinBio\\Configurations", 0, NULL, 0, KEY_WRITE, NULL, &hCfgRoot, NULL) == ERROR_SUCCESS)
             {
-                const wchar_t szZero[] = L"0";
-                RegSetValueExW(hCfgRoot, L"DefaultConfiguration", 0, REG_SZ, (const BYTE*)szZero, sizeof(szZero));
+                DWORD dwZero = 0;
+                RegSetValueExW(hCfgRoot, L"DefaultConfiguration", 0, REG_DWORD, (const BYTE*)&dwZero, sizeof(dwZero));
                 RegCloseKey(hCfgRoot);
             }
 
@@ -342,8 +333,8 @@ int main()
                 HKEY hCfgRoot = NULL;
                 if (RegCreateKeyExW(hDevParam, L"WinBio\\Configurations", 0, NULL, 0, KEY_WRITE, NULL, &hCfgRoot, NULL) == ERROR_SUCCESS)
                 {
-                    const wchar_t szZero[] = L"0";
-                    RegSetValueExW(hCfgRoot, L"DefaultConfiguration", 0, REG_SZ, (const BYTE*)szZero, sizeof(szZero));
+                    DWORD dwZero = 0;
+                    RegSetValueExW(hCfgRoot, L"DefaultConfiguration", 0, REG_DWORD, (const BYTE*)&dwZero, sizeof(dwZero));
                     RegCloseKey(hCfgRoot);
                 }
 
@@ -374,8 +365,8 @@ int main()
         HKEY hCfgRoot = NULL;
         if (RegCreateKeyExW(hEnumKey, L"WinBio\\Configurations", 0, NULL, 0, KEY_WRITE, NULL, &hCfgRoot, NULL) == ERROR_SUCCESS)
         {
-            const wchar_t szZero[] = L"0";
-            RegSetValueExW(hCfgRoot, L"DefaultConfiguration", 0, REG_SZ, (const BYTE*)szZero, sizeof(szZero));
+            DWORD dwZero = 0;
+            RegSetValueExW(hCfgRoot, L"DefaultConfiguration", 0, REG_DWORD, (const BYTE*)&dwZero, sizeof(dwZero));
             RegCloseKey(hCfgRoot);
         }
 
