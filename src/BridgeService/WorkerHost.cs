@@ -15,6 +15,7 @@ namespace MFS100BridgeSvc
     public class WorkerHost : IDisposable
     {
         private readonly object _lock = new object();
+        private readonly SemaphoreSlim _cmdSemaphore = new SemaphoreSlim(1, 1);
         private Process? _workerProcess;
         private StreamWriter? _stdinWriter;
         private StreamReader? _stdoutReader;
@@ -151,62 +152,70 @@ namespace MFS100BridgeSvc
             if (_disposed)
                 return Protocol.CreateErrorJson(-1, "Service is shutting down");
 
-            Task<string> executionTask;
-
-            lock (_lock)
-            {
-                EnsureWorkerRunning();
-
-                var proc = _workerProcess!;
-                var writer = _stdinWriter!;
-                var reader = _stdoutReader!;
-
-                executionTask = Task.Run(async () =>
-                {
-                    try
-                    {
-                        await writer.WriteLineAsync(jsonCommand);
-                        string? line;
-                        while (true)
-                        {
-                            line = await reader.ReadLineAsync();
-                            if (line == null)
-                                throw new IOException("Worker returned EOF");
-                            line = line.Trim();
-                            if (line.Length > 0 && line.StartsWith("{") && line.EndsWith("}"))
-                                return line;
-
-                            // Native SDK printf chatter (e.g. "MFS100AutoCapture Quality = N") - ignore it
-                            ServiceLog.Info($"[Worker-IgnoredChatter] {line}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        ServiceLog.Error($"Communication error with worker: {ex.Message}");
-                        throw;
-                    }
-                });
-            }
-
-            // Enforce hard deadline
-            var delayTask = Task.Delay(deadlineMs);
-            var completedTask = await Task.WhenAny(executionTask, delayTask);
-
-            if (completedTask == delayTask)
-            {
-                ServiceLog.Error($"Worker timed out! Exceeded hard deadline of {deadlineMs}ms. Killing and restarting worker...");
-                KillAndRestart();
-                return Protocol.CreateErrorJson(-1140, $"Worker timed out after {deadlineMs}ms");
-            }
-
+            await _cmdSemaphore.WaitAsync();
             try
             {
-                return await executionTask;
+                Task<string> executionTask;
+
+                lock (_lock)
+                {
+                    EnsureWorkerRunning();
+
+                    var proc = _workerProcess!;
+                    var writer = _stdinWriter!;
+                    var reader = _stdoutReader!;
+
+                    executionTask = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await writer.WriteLineAsync(jsonCommand);
+                            string? line;
+                            while (true)
+                            {
+                                line = await reader.ReadLineAsync();
+                                if (line == null)
+                                    throw new IOException("Worker returned EOF");
+                                line = line.Trim();
+                                if (line.Length > 0 && line.StartsWith("{") && line.EndsWith("}"))
+                                    return line;
+
+                                // Native SDK printf chatter (e.g. "MFS100AutoCapture Quality = N") - ignore it
+                                ServiceLog.Info($"[Worker-IgnoredChatter] {line}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            ServiceLog.Error($"Communication error with worker: {ex.Message}");
+                            throw;
+                        }
+                    });
+                }
+
+                // Enforce hard deadline
+                var delayTask = Task.Delay(deadlineMs);
+                var completedTask = await Task.WhenAny(executionTask, delayTask);
+
+                if (completedTask == delayTask)
+                {
+                    ServiceLog.Error($"Worker timed out! Exceeded hard deadline of {deadlineMs}ms. Killing and restarting worker...");
+                    KillAndRestart();
+                    return Protocol.CreateErrorJson(-1140, $"Worker timed out after {deadlineMs}ms");
+                }
+
+                try
+                {
+                    return await executionTask;
+                }
+                catch (Exception ex)
+                {
+                    KillAndRestart();
+                    return Protocol.CreateErrorJson(-1, $"Worker communication failure: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+            finally
             {
-                KillAndRestart();
-                return Protocol.CreateErrorJson(-1, $"Worker communication failure: {ex.Message}");
+                _cmdSemaphore.Release();
             }
         }
 

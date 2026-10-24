@@ -272,10 +272,14 @@ static HRESULT WINAPI EngineAdapterUpdateEnrollment(PWINBIO_PIPELINE Pipeline, P
     pCtx->dwEnrollmentCount++;
     OutputDebugStringW(L"[MFS100EngineAdapter] Enrollment step completed.");
 
-    if (pCtx->dwEnrollmentCount >= pCtx->dwEnrollmentTarget)
+    if (pCtx->cbCurrentFeatureSet > 0)
     {
         memcpy(pCtx->EnrollmentTemplate, pCtx->CurrentFeatureSet, pCtx->cbCurrentFeatureSet);
         pCtx->cbEnrollmentTemplate = pCtx->cbCurrentFeatureSet;
+    }
+
+    if (pCtx->dwEnrollmentCount >= pCtx->dwEnrollmentTarget)
+    {
         OutputDebugStringW(L"[MFS100EngineAdapter] Enrollment complete! Ready to commit.");
         return S_OK;
     }

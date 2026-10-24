@@ -143,8 +143,8 @@ namespace MFS100Worker
             {
                 FingerData fd = new FingerData();
 
-                // Flush any lingering capture before starting
-                try { _mfs!.StopCapture(); } catch { }
+                // Small pause so previous touch can be lifted and optical prism settles
+                System.Threading.Thread.Sleep(200);
 
                 // IsDetectFinger=false: SDK polls until timeout or good scan.
                 // ShowPreview=false: no HWND required — works in Session 0.
