@@ -229,10 +229,16 @@ namespace MFS100BridgeSvc
 
                     case "capture":
                     {
+                        // If system is currently suspending/sleeping, wait up to 30s for resume rather than rejecting
                         if (BridgeService.IsSystemSuspending)
                         {
-                            ServiceLog.Warn("Rejecting capture request because system is currently suspending/sleeping.");
-                            return Protocol.CreateErrorJson(-1141, "Capture cancelled - system is suspending");
+                            ServiceLog.Info("Capture request received while system is suspending/asleep. Waiting for resume...");
+                            int waitCount = 0;
+                            while (BridgeService.IsSystemSuspending && waitCount < 60)
+                            {
+                                await Task.Delay(500);
+                                waitCount++;
+                            }
                         }
 
                         int timeoutMs = req["timeoutMs"]?.Value<int>() ?? 10000;

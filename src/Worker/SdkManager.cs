@@ -56,6 +56,8 @@ namespace MFS100Worker
         MFS100?         _mfs;
         bool            _initialized;
         EventWaitHandle? _cancelEvent;
+        EventWaitHandle? _suspendEvent;
+        EventWaitHandle? _resumeEvent;
 
         public SdkManager()
         {
@@ -68,10 +70,10 @@ namespace MFS100Worker
                 WorkerLog.Error($"Failed to instantiate MFS100: {ex}");
             }
 
-            InitCancelEvent();
+            InitEvents();
         }
 
-        private void InitCancelEvent()
+        private static EventWaitHandle CreateGlobalEvent(string name)
         {
             try
             {
@@ -83,22 +85,33 @@ namespace MFS100Worker
                 eventSecurity.AddAccessRule(rule);
 
                 bool createdNew;
-                _cancelEvent = new EventWaitHandle(
+                var handle = new EventWaitHandle(
                     false,
                     EventResetMode.AutoReset,
-                    @"Global\MFS100_CancelCapture",
+                    name,
                     out createdNew,
                     eventSecurity);
-                WorkerLog.Info($"Global\\MFS100_CancelCapture event initialized (createdNew={createdNew})");
+                WorkerLog.Info($"{name} initialized (createdNew={createdNew})");
+                return handle;
             }
             catch (Exception ex)
             {
-                WorkerLog.Warn($"Could not create Global cancel event with security, falling back: {ex.Message}");
-                try
-                {
-                    _cancelEvent = new EventWaitHandle(false, EventResetMode.AutoReset, @"Global\MFS100_CancelCapture");
-                }
-                catch { }
+                WorkerLog.Warn($"Could not create {name} with security, falling back: {ex.Message}");
+                return new EventWaitHandle(false, EventResetMode.AutoReset, name);
+            }
+        }
+
+        private void InitEvents()
+        {
+            try
+            {
+                _cancelEvent = CreateGlobalEvent(@"Global\MFS100_CancelCapture");
+                _suspendEvent = CreateGlobalEvent(@"Global\MFS100_SuspendCapture");
+                _resumeEvent = CreateGlobalEvent(@"Global\MFS100_ResumeCapture");
+            }
+            catch (Exception ex)
+            {
+                WorkerLog.Error($"InitEvents failed: {ex.Message}");
             }
         }
 
@@ -206,6 +219,8 @@ namespace MFS100Worker
         private CaptureResult? TryFastCapture(int timeoutMs, Stopwatch sw)
         {
             _cancelEvent?.Reset();
+            _suspendEvent?.Reset();
+            _resumeEvent?.Reset();
 
             int width = MFS100Native.MFS100GetWidth();
             int height = MFS100Native.MFS100GetHeight();
@@ -235,13 +250,58 @@ namespace MFS100Worker
 
                 while (sw.ElapsedMilliseconds < timeoutMs)
                 {
-                    // Check if capture was cancelled (e.g. system entering sleep or cancelled by WBF)
+                    // Check if capture was cancelled (e.g. cancelled by WBF or user)
                     if (_cancelEvent != null && _cancelEvent.WaitOne(0))
                     {
                         MFS100Native.MFS100StopXcan();
                         sw.Stop();
                         WorkerLog.Info($"FastCapture cancelled via cancel event signal after {sw.ElapsedMilliseconds}ms.");
                         return Fail(-1141, "Capture cancelled");
+                    }
+
+                    // Check if system is entering sleep/suspend
+                    if (_suspendEvent != null && _suspendEvent.WaitOne(0))
+                    {
+                        MFS100Native.MFS100StopXcan();
+                        WorkerLog.Info("System suspend detected. Sensor LED turned OFF. Pausing capture and waiting for resume...");
+
+                        WaitHandle[] waitHandles = _cancelEvent != null && _resumeEvent != null
+                            ? new WaitHandle[] { _resumeEvent, _cancelEvent }
+                            : new WaitHandle[] { _resumeEvent ?? new ManualResetEvent(false) };
+
+                        int waitIdx = WaitHandle.WaitAny(waitHandles);
+                        if (waitIdx == 1) // Cancelled while asleep or upon wake
+                        {
+                            sw.Stop();
+                            WorkerLog.Info("Capture cancelled while system was suspended.");
+                            return Fail(-1141, "Capture cancelled");
+                        }
+
+                        WorkerLog.Info("System resumed! Re-arming sensor LED for wake-up lockscreen...");
+                        int resumeRet = MFS100Native.MFS100StartXcan();
+                        if (resumeRet != 0)
+                        {
+                            WorkerLog.Warn($"MFS100StartXcan returned code {resumeRet} after resume. Reinitializing device...");
+                            try
+                            {
+                                _mfs?.Uninit();
+                                _initialized = false;
+                                Thread.Sleep(300);
+                                Init();
+                                resumeRet = MFS100Native.MFS100StartXcan();
+                                WorkerLog.Info($"MFS100StartXcan after re-init result: {resumeRet}");
+                            }
+                            catch (Exception ex)
+                            {
+                                WorkerLog.Error($"Error reinitializing MFS100 on resume: {ex.Message}");
+                            }
+                        }
+
+                        sw.Restart();
+                        consecutiveGoodFrames = 0;
+                        bestQuality = 0;
+                        WorkerLog.Info("Sensor LED is ON! Ready for finger scan.");
+                        continue;
                     }
 
                     int fRet = MFS100Native.MFS100GetFrame(frameBuf);
@@ -511,7 +571,11 @@ namespace MFS100Worker
         {
             Uninit();
             try { _cancelEvent?.Dispose(); } catch { }
+            try { _suspendEvent?.Dispose(); } catch { }
+            try { _resumeEvent?.Dispose(); } catch { }
             _cancelEvent = null;
+            _suspendEvent = null;
+            _resumeEvent = null;
         }
     }
 

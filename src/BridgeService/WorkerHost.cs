@@ -207,13 +207,21 @@ namespace MFS100BridgeSvc
                     });
                 }
 
-                // Enforce hard deadline
-                var delayTask = Task.Delay(deadlineMs);
-                var completedTask = await Task.WhenAny(executionTask, delayTask);
-
-                if (completedTask == delayTask)
+                // Enforce active execution deadline (ignoring periods when system is suspended/asleep)
+                int elapsedActiveMs = 0;
+                while (elapsedActiveMs < deadlineMs)
                 {
-                    ServiceLog.Error($"Worker timed out! Exceeded hard deadline of {deadlineMs}ms. Killing and restarting worker...");
+                    if (executionTask.IsCompleted) break;
+                    await Task.Delay(250);
+                    if (!BridgeService.IsSystemSuspending)
+                    {
+                        elapsedActiveMs += 250;
+                    }
+                }
+
+                if (!executionTask.IsCompleted)
+                {
+                    ServiceLog.Error($"Worker timed out! Exceeded active deadline of {deadlineMs}ms. Killing and restarting worker...");
                     KillAndRestart();
                     return Protocol.CreateErrorJson(-1140, $"Worker timed out after {deadlineMs}ms");
                 }
