@@ -16,7 +16,7 @@ echo 1. Compiling MFS100SensorAdapter.dll...
 cl.exe /nologo /O2 /W3 /D_UNICODE /DUNICODE /DWIN32 /D_WINDOWS /D_USRDLL /EHsc /MT ^
     /I. ^
     MFS100SensorAdapter.cpp ^
-    /link /DLL /DEF:MFS100SensorAdapter.def /OUT:MFS100SensorAdapter.dll ^
+    /link /DLL /INTEGRITYCHECK /DEF:MFS100SensorAdapter.def /OUT:MFS100SensorAdapter.dll ^
     advapi32.lib crypt32.lib user32.lib winbio.lib
 
 if errorlevel 1 (
@@ -29,7 +29,7 @@ echo 2. Compiling MFS100EngineAdapter.dll...
 cl.exe /nologo /O2 /W3 /D_UNICODE /DUNICODE /DWIN32 /D_WINDOWS /D_USRDLL /EHsc /MT ^
     /I. ^
     MFS100EngineAdapter.cpp ^
-    /link /DLL /DEF:MFS100EngineAdapter.def /OUT:MFS100EngineAdapter.dll ^
+    /link /DLL /INTEGRITYCHECK /DEF:MFS100EngineAdapter.def /OUT:MFS100EngineAdapter.dll ^
     advapi32.lib crypt32.lib user32.lib winbio.lib
 
 if errorlevel 1 (
@@ -75,3 +75,8 @@ copy /y TestWbfUnit.exe "..\..\dist\MFS100_Deployment\"
 copy /y RegisterWbfDevice.exe "..\..\dist\MFS100_Deployment\"
 copy /y mfs100_wbf.inf "..\..\dist\MFS100_Deployment\"
 del *.obj *.exp *.lib 2>nul
+
+echo.
+echo 5. Digitally signing WBF adapters with Force Integrity...
+powershell.exe -ExecutionPolicy Bypass -File "%~dp0SignAdapters.ps1"
+
