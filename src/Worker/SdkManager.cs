@@ -151,14 +151,16 @@ namespace MFS100Worker
                 int ret = _mfs!.AutoCapture(ref fd, timeoutMs, false, false);
 
                 sw.Stop();
+                int q = (fd != null) ? fd.Quality : 0;
+                int n = (fd != null) ? fd.Nfiq : 0;
                 WorkerLog.Info($"AutoCapture returned: code={ret} elapsed={sw.ElapsedMilliseconds}ms " +
-                               $"quality={fd.Quality} nfiq={fd.Nfiq}");
+                               $"quality={q} nfiq={n}");
 
-                if (ret != 0)
+                if (ret != 0 || fd == null)
                 {
-                    string msg = _mfs?.GetErrorMsg(ret) ?? $"Error code {ret}";
+                    string msg = (ret != 0 && _mfs != null) ? (_mfs.GetErrorMsg(ret) ?? $"Error code {ret}") : "No finger detected or timeout";
                     WorkerLog.Warn($"Capture failed: code={ret} msg={msg}");
-                    return Fail(ret, msg);
+                    return Fail(ret != 0 ? ret : -1, msg);
                 }
 
                 if (fd.Quality < MIN_CAPTURE_QUALITY)

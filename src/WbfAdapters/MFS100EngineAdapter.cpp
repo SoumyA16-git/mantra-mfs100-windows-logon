@@ -573,13 +573,6 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
     }
     else
     {
-        if (Pipeline->StorageInterface->GetRecordCount)
-        {
-            SIZE_T count = 0;
-            HRESULT hrCount = Pipeline->StorageInterface->GetRecordCount(Pipeline, &count);
-            WbfLog(L"[MFS100EngineAdapter] Verify: StorageInterface->GetRecordCount returned hr=0x%08X, count=%llu", hrCount, count);
-        }
-
         WINBIO_IDENTITY queryId = { 0 };
         if (Identity != NULL)
         {
@@ -588,6 +581,11 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
         else
         {
             queryId.Type = WINBIO_ID_TYPE_WILDCARD;
+        }
+
+        if (queryId.Type == WINBIO_ID_TYPE_WILDCARD)
+        {
+            queryId.Value.Wildcard = WINBIO_IDENTITY_WILDCARD;
         }
 
         WINBIO_BIOMETRIC_SUBTYPE querySub = SubFactor;
@@ -601,16 +599,26 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
         {
             hr = Pipeline->StorageInterface->QueryBySubject(Pipeline, &queryId, querySub);
             WbfLog(L"[MFS100EngineAdapter] Verify: QueryBySubject(sub=0x%02X) returned hr=0x%08X", querySub, hr);
-            if (FAILED(hr) && querySub != WINBIO_SUBTYPE_ANY)
+            if (FAILED(hr) && queryId.Type != WINBIO_ID_TYPE_WILDCARD)
             {
-                hr = Pipeline->StorageInterface->QueryBySubject(Pipeline, &queryId, WINBIO_SUBTYPE_ANY);
-                WbfLog(L"[MFS100EngineAdapter] Verify: QueryBySubject fallback(ANY) returned hr=0x%08X", hr);
+                WINBIO_IDENTITY wildId = { 0 };
+                wildId.Type = WINBIO_ID_TYPE_WILDCARD;
+                wildId.Value.Wildcard = WINBIO_IDENTITY_WILDCARD;
+                hr = Pipeline->StorageInterface->QueryBySubject(Pipeline, &wildId, WINBIO_SUBTYPE_ANY);
+                WbfLog(L"[MFS100EngineAdapter] Verify: QueryBySubject fallback(WILDCARD) returned hr=0x%08X", hr);
             }
         }
         else if (Pipeline->StorageInterface->FirstRecord)
         {
             hr = Pipeline->StorageInterface->FirstRecord(Pipeline);
             WbfLog(L"[MFS100EngineAdapter] Verify: FirstRecord returned hr=0x%08X", hr);
+        }
+
+        if (SUCCEEDED(hr) && Pipeline->StorageInterface->GetRecordCount)
+        {
+            SIZE_T count = 0;
+            HRESULT hrCount = Pipeline->StorageInterface->GetRecordCount(Pipeline, &count);
+            WbfLog(L"[MFS100EngineAdapter] Verify: StorageInterface->GetRecordCount returned hr=0x%08X, count=%llu", hrCount, count);
         }
 
         int recIdx = 0;
@@ -633,8 +641,8 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
                     int score = 0;
                     if (WorkerMatch(pszProbe, pszGallery, &score))
                     {
-                        WbfLog(L"[MFS100EngineAdapter] Verify: Record [%d] match score=%d (threshold=200)", recIdx, score);
-                        if (score >= 200)
+                        WbfLog(L"[MFS100EngineAdapter] Verify: Record [%d] match score=%d (threshold=140)", recIdx, score);
+                        if (score >= 140)
                         {
                             *Match = TRUE;
                             bFound = TRUE;
@@ -705,16 +713,10 @@ static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline,
     }
     else
     {
-        if (Pipeline->StorageInterface->GetRecordCount)
-        {
-            SIZE_T count = 0;
-            HRESULT hrCount = Pipeline->StorageInterface->GetRecordCount(Pipeline, &count);
-            WbfLog(L"[MFS100EngineAdapter] Identify: StorageInterface->GetRecordCount returned hr=0x%08X, count=%llu", hrCount, count);
-        }
-
         HRESULT hr = E_FAIL;
         WINBIO_IDENTITY wildcardId = { 0 };
         wildcardId.Type = WINBIO_ID_TYPE_WILDCARD;
+        wildcardId.Value.Wildcard = WINBIO_IDENTITY_WILDCARD;
 
         if (Pipeline->StorageInterface->QueryBySubject)
         {
@@ -725,6 +727,13 @@ static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline,
         {
             hr = Pipeline->StorageInterface->FirstRecord(Pipeline);
             WbfLog(L"[MFS100EngineAdapter] Identify: FirstRecord returned hr=0x%08X", hr);
+        }
+
+        if (SUCCEEDED(hr) && Pipeline->StorageInterface->GetRecordCount)
+        {
+            SIZE_T count = 0;
+            HRESULT hrCount = Pipeline->StorageInterface->GetRecordCount(Pipeline, &count);
+            WbfLog(L"[MFS100EngineAdapter] Identify: StorageInterface->GetRecordCount returned hr=0x%08X, count=%llu", hrCount, count);
         }
 
         int recIdx = 0;
@@ -747,9 +756,9 @@ static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline,
                     int score = 0;
                     if (WorkerMatch(pszProbe, pszGallery, &score))
                     {
-                        WbfLog(L"[MFS100EngineAdapter] Identify: Record [%d] SubFactor=0x%02X match score=%d (threshold=200)",
+                        WbfLog(L"[MFS100EngineAdapter] Identify: Record [%d] SubFactor=0x%02X match score=%d (threshold=140)",
                                recIdx, record.SubFactor, score);
-                        if (score >= 200)
+                        if (score >= 140)
                         {
                             if (record.Identity) *Identity = *record.Identity;
                             *SubFactor = record.SubFactor;
