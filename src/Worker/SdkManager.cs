@@ -46,7 +46,7 @@ namespace MFS100Worker
     /// </summary>
     internal sealed class SdkManager : IDisposable
     {
-        const int MIN_CAPTURE_QUALITY = 40;
+        const int MIN_CAPTURE_QUALITY = 30;
 
         MFS100? _mfs;
         bool    _initialized;
@@ -142,6 +142,9 @@ namespace MFS100Worker
             try
             {
                 FingerData fd = new FingerData();
+
+                // Flush any lingering capture before starting
+                try { _mfs!.StopCapture(); } catch { }
 
                 // IsDetectFinger=false: SDK polls until timeout or good scan.
                 // ShowPreview=false: no HWND required — works in Session 0.

@@ -85,37 +85,20 @@ namespace MFS100BridgeSvc
         private async Task ListenLoopAsync(CancellationToken ct)
         {
             var pipeSecurity = CreatePipeSecurity();
-            bool isFirstInstance = true;
-
             while (!ct.IsCancellationRequested)
             {
                 NamedPipeServerStream? serverStream = null;
                 try
                 {
-                    if (isFirstInstance)
-                    {
-                        serverStream = new NamedPipeServerStream(
-                            Protocol.PipeName,
-                            PipeDirection.InOut,
-                            NamedPipeServerStream.MaxAllowedServerInstances,
-                            PipeTransmissionMode.Byte,
-                            PipeOptions.Asynchronous,
-                            65536,
-                            65536,
-                            pipeSecurity);
-                        isFirstInstance = false;
-                    }
-                    else
-                    {
-                        serverStream = new NamedPipeServerStream(
-                            Protocol.PipeName,
-                            PipeDirection.InOut,
-                            NamedPipeServerStream.MaxAllowedServerInstances,
-                            PipeTransmissionMode.Byte,
-                            PipeOptions.Asynchronous,
-                            65536,
-                            65536);
-                    }
+                    serverStream = new NamedPipeServerStream(
+                        Protocol.PipeName,
+                        PipeDirection.InOut,
+                        NamedPipeServerStream.MaxAllowedServerInstances,
+                        PipeTransmissionMode.Byte,
+                        PipeOptions.Asynchronous,
+                        65536,
+                        65536,
+                        pipeSecurity);
 
                     await Task.Factory.FromAsync(serverStream.BeginWaitForConnection, serverStream.EndWaitForConnection, null);
 
