@@ -1,0 +1,52 @@
+================================================================================
+  Mantra MFS100 Native Windows Hello Fingerprint Setup Guide
+================================================================================
+
+PREREQUISITES:
+1. Mantra MFS100 USB Fingerprint Scanner plugged in.
+2. Official Mantra MFS100 Driver v9.0.2.5 installed.
+   (Verify red LED blinks when connected).
+3. Windows 11 (64-bit) or Windows 10 (64-bit).
+4. A Windows Hello PIN already set up on your user account.
+   (Windows Hello requires a PIN before allowing fingerprint setup).
+
+--------------------------------------------------------------------------------
+QUICK START (3 STEPS):
+--------------------------------------------------------------------------------
+
+STEP 1: Enable Test Signing (Required for self-signed driver)
+   1. Open Command Prompt or PowerShell as Administrator.
+   2. Run:
+        bcdedit /set testsigning on
+   3. Restart your computer.
+   (Note: For commercial production, sign the adapter DLLs with a DigiCert/Sectigo
+    code-signing certificate to run in standard mode without Test Signing).
+
+STEP 2: Register Windows Biometric Framework (WBF) Adapters
+   1. Extract this ZIP to a permanent folder (e.g., C:\MantraWBF).
+   2. Right-click "7_Register_WBF_Windows_Hello.bat" and select "Run as administrator".
+   3. The script will automatically:
+      - Install the driver certificate into Trusted Root and Trusted Publishers.
+      - Install and start the MFS100 Bridge Service in the background.
+      - Copy 64-bit Sensor & Engine adapters to C:\Windows\System32\WinBioPlugIns.
+      - Register the biometric database configuration in the Windows Registry.
+      - Restart the Windows Biometric Service (WbioSrvc).
+   4. Verify you see "[SUCCESS] Mantra MFS100 registered with Windows Biometric Framework!"
+
+STEP 3: Enroll Fingerprint in Windows Settings
+   1. Open Windows Settings (Win + I) -> Accounts -> Sign-in options.
+   2. Click "Fingerprint recognition (Windows Hello)" -> "Set up" -> "Get started".
+   3. Enter your Windows Hello PIN when prompted.
+   4. Place and lift your finger on the Mantra MFS100 scanner when the sensor LED lights up.
+   5. Once enrollment completes, press Win + L to lock your PC.
+   6. Touch the scanner with your enrolled finger to unlock Windows natively!
+
+--------------------------------------------------------------------------------
+TROUBLESHOOTING & LOGS:
+--------------------------------------------------------------------------------
+- View Real-Time Logs:
+  Run "show_logs.bat" as Administrator to see live WBF adapter and Bridge Service logs.
+
+- Uninstallation:
+  Right-click "8_Unregister_WBF_Windows_Hello.bat" and select "Run as administrator".
+================================================================================
