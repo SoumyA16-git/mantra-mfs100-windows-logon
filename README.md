@@ -66,8 +66,9 @@ Follow these exact 6 steps in chronological order on any Windows 11 / 10 PC to g
 
 ### Step 3: Install Official Mantra Driver & Connect Device
 
-1. Download and install the official **Mantra MFS100 Driver v9.0.2.5** (installed to `C:\Program Files\Mantra\MFS100\Driver`).
-   *(Note: Do NOT install or run Aadhaar RD Service; RD Service is not required for Windows Hello logon).*
+1. Run the official **Mantra Driver installer** included directly inside the package:
+   `mfs100driver-9.2.0.0.exe`
+   *(Follow the setup wizard to complete installation. Note: Do NOT install or run Aadhaar RD Service; RD Service is not required for Windows Hello logon).*
 2. Plug your **Mantra MFS100 scanner** into any USB port.
 3. Confirm the scanner's red optical LED blinks once upon connection.
 

@@ -46,8 +46,9 @@ STEP 2: Enable Test Signing Mode
 --------------------------------------------------------------------------------
 STEP 3: Install Official Mantra Driver & Connect Device
 --------------------------------------------------------------------------------
-1. Download and install the official Mantra MFS100 Driver v9.0.2.5.
-   (Default install location: C:\Program Files\Mantra\MFS100\Driver).
+1. Run the official Mantra Driver installer included inside this package:
+      mfs100driver-9.2.0.0.exe
+   Follow the setup wizard to complete installation.
    Note: Do NOT install or run Aadhaar RD Service; it is not needed for Windows logon.
 2. Plug your Mantra MFS100 scanner into a USB 2.0 or USB 3.0 port.
 3. Confirm the scanner's red optical sensor LED blinks once upon connection.
