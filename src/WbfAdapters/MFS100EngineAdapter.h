@@ -29,7 +29,11 @@ typedef struct _MFS100_ENGINE_CONTEXT {
     SIZE_T cbCurrentFeatureSet;
     UCHAR EnrollmentTemplate[16384];
     SIZE_T cbEnrollmentTemplate;
+    UCHAR EnrollmentHash[64];
+    SIZE_T cbEnrollmentHash;
+    char szSelectedHashOid[64];
     DWORD dwEnrollmentCount;
     DWORD dwEnrollmentTarget;
     WINBIO_REJECT_DETAIL LastRejectDetail;
 } MFS100_ENGINE_CONTEXT, *PMFS100_ENGINE_CONTEXT;
+

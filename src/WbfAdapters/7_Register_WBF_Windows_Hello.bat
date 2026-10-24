@@ -33,10 +33,12 @@ timeout /t 1 /nobreak >nul
 :: 3. Deploy Adapter DLLs to WinBioPlugIns and System32
 echo 3. Copying WBF adapter binaries to WinBioPlugIns and System32...
 if not exist "%SystemRoot%\System32\WinBioPlugIns" mkdir "%SystemRoot%\System32\WinBioPlugIns"
+if not exist "%SystemRoot%\System32\WinBioDatabase" mkdir "%SystemRoot%\System32\WinBioDatabase"
 copy /y "%~dp0MFS100SensorAdapter.dll" "%SystemRoot%\System32\WinBioPlugIns\MFS100SensorAdapter.dll"
 copy /y "%~dp0MFS100EngineAdapter.dll" "%SystemRoot%\System32\WinBioPlugIns\MFS100EngineAdapter.dll"
 copy /y "%~dp0MFS100SensorAdapter.dll" "%SystemRoot%\System32\MFS100SensorAdapter.dll"
 copy /y "%~dp0MFS100EngineAdapter.dll" "%SystemRoot%\System32\MFS100EngineAdapter.dll"
+
 
 :: 4. Install Code Signing Certificate into Root and TrustedPublisher stores
 echo 4. Installing Code Signing Certificate into Trusted Root and TrustedPublisher...

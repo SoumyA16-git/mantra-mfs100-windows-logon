@@ -150,17 +150,25 @@ static HRESULT WINAPI EngineAdapterQueryIndexVectorSize(PWINBIO_PIPELINE Pipelin
     return S_OK;
 }
 
+static const char g_szHashAlgorithms[] = szOID_OIWSEC_sha1 "\0" szOID_NIST_sha256 "\0";
+
 static HRESULT WINAPI EngineAdapterQueryHashAlgorithms(PWINBIO_PIPELINE Pipeline, PSIZE_T AlgorithmCount, PSIZE_T AlgorithmBufferSize, PUCHAR *AlgorithmBuffer)
 {
     if (AlgorithmCount == NULL || AlgorithmBufferSize == NULL || AlgorithmBuffer == NULL) return E_POINTER;
-    *AlgorithmCount = 0;
-    *AlgorithmBufferSize = 0;
-    *AlgorithmBuffer = NULL;
+    *AlgorithmCount = 2;
+    *AlgorithmBufferSize = sizeof(g_szHashAlgorithms);
+    *AlgorithmBuffer = (PUCHAR)g_szHashAlgorithms;
     return S_OK;
 }
 
 static HRESULT WINAPI EngineAdapterSetHashAlgorithm(PWINBIO_PIPELINE Pipeline, SIZE_T AlgorithmBufferSize, PUCHAR AlgorithmBuffer)
 {
+    if (Pipeline == NULL || Pipeline->EngineContext == NULL) return E_POINTER;
+    PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
+    if (AlgorithmBuffer && AlgorithmBufferSize > 0)
+    {
+        StringCchCopyA(pCtx->szSelectedHashOid, ARRAYSIZE(pCtx->szSelectedHashOid), (const char*)AlgorithmBuffer);
+    }
     return S_OK;
 }
 
@@ -290,9 +298,37 @@ static HRESULT WINAPI EngineAdapterGetEnrollmentStatus(PWINBIO_PIPELINE Pipeline
 
 static HRESULT WINAPI EngineAdapterGetEnrollmentHash(PWINBIO_PIPELINE Pipeline, PUCHAR *HashValue, PSIZE_T HashSize)
 {
-    if (HashValue == NULL || HashSize == NULL) return E_POINTER;
-    *HashValue = NULL;
-    *HashSize = 0;
+    if (Pipeline == NULL || Pipeline->EngineContext == NULL || HashValue == NULL || HashSize == NULL) return E_POINTER;
+    PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
+
+    if (pCtx->cbEnrollmentTemplate == 0) return WINBIO_E_NO_CAPTURE_DATA;
+
+    HCRYPTPROV hProv = 0;
+    HCRYPTHASH hHash = 0;
+    if (CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_AES, CRYPT_VERIFYCONTEXT) ||
+        CryptAcquireContextW(&hProv, NULL, NULL, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT))
+    {
+        ALG_ID algId = CALG_SHA1;
+        if (strcmp(pCtx->szSelectedHashOid, szOID_NIST_sha256) == 0)
+        {
+            algId = CALG_SHA_256;
+        }
+
+        if (CryptCreateHash(hProv, algId, 0, 0, &hHash))
+        {
+            CryptHashData(hHash, pCtx->EnrollmentTemplate, (DWORD)pCtx->cbEnrollmentTemplate, 0);
+            DWORD dwHashLen = sizeof(pCtx->EnrollmentHash);
+            if (CryptGetHashParam(hHash, HP_HASHVAL, pCtx->EnrollmentHash, &dwHashLen, 0))
+            {
+                pCtx->cbEnrollmentHash = dwHashLen;
+            }
+            CryptDestroyHash(hHash);
+        }
+        CryptReleaseContext(hProv, 0);
+    }
+
+    *HashValue = pCtx->EnrollmentHash;
+    *HashSize = pCtx->cbEnrollmentHash;
     return S_OK;
 }
 
@@ -311,6 +347,28 @@ static HRESULT WINAPI EngineAdapterCommitEnrollment(PWINBIO_PIPELINE Pipeline, P
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
     if (pCtx->cbEnrollmentTemplate == 0) return WINBIO_E_NO_CAPTURE_DATA;
 
+    WINBIO_STORAGE_RECORD record = { 0 };
+    record.Identity = Identity;
+    record.SubFactor = SubFactor;
+    record.IndexVector = NULL;
+    record.IndexElementCount = 0;
+    record.TemplateBlob = pCtx->EnrollmentTemplate;
+    record.TemplateBlobSize = pCtx->cbEnrollmentTemplate;
+    record.PayloadBlob = PayloadBlob;
+    record.PayloadBlobSize = PayloadBlobSize;
+
+    HRESULT hr = S_OK;
+    if (Pipeline->StorageInterface && Pipeline->StorageInterface->AddRecord)
+    {
+        hr = Pipeline->StorageInterface->AddRecord(Pipeline, &record);
+        if (FAILED(hr))
+        {
+            OutputDebugStringW(L"[MFS100EngineAdapter] StorageInterface->AddRecord failed.");
+            return hr;
+        }
+    }
+
+    OutputDebugStringW(L"[MFS100EngineAdapter] Enrollment committed to storage successfully!");
     return S_OK;
 }
 
@@ -375,12 +433,75 @@ static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline,
     OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterIdentifyFeatureSet called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || Identity == NULL || SubFactor == NULL || RejectDetail == NULL) return E_POINTER;
 
-    BOOLEAN bMatch = FALSE;
-    HRESULT hr = EngineAdapterVerifyFeatureSet(Pipeline, Identity, *SubFactor, &bMatch, PayloadBlob, PayloadBlobSize, HashValue, HashSize, RejectDetail);
-    if (SUCCEEDED(hr) && bMatch)
+    PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
+    *RejectDetail = 0;
+    if (PayloadBlob) *PayloadBlob = NULL;
+    if (PayloadBlobSize) *PayloadBlobSize = 0;
+    if (HashValue) *HashValue = NULL;
+    if (HashSize) *HashSize = 0;
+
+    if (pCtx->cbCurrentFeatureSet == 0) return WINBIO_E_NO_CAPTURE_DATA;
+
+    DWORD cchProbe = 0;
+    CryptBinaryToStringA(pCtx->CurrentFeatureSet, (DWORD)pCtx->cbCurrentFeatureSet, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &cchProbe);
+    char* pszProbe = (char*)HeapAlloc(GetProcessHeap(), 0, cchProbe + 1);
+    if (!pszProbe) return E_OUTOFMEMORY;
+    CryptBinaryToStringA(pCtx->CurrentFeatureSet, (DWORD)pCtx->cbCurrentFeatureSet, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, pszProbe, &cchProbe);
+
+    BOOLEAN bFound = FALSE;
+    if (Pipeline->StorageInterface && Pipeline->StorageInterface->FirstRecord && Pipeline->StorageInterface->GetCurrentRecord)
     {
+        HRESULT hr = Pipeline->StorageInterface->FirstRecord(Pipeline);
+        while (SUCCEEDED(hr))
+        {
+            WINBIO_STORAGE_RECORD record = { 0 };
+            HRESULT hrRecord = Pipeline->StorageInterface->GetCurrentRecord(Pipeline, &record);
+            if (SUCCEEDED(hrRecord) && record.TemplateBlob && record.TemplateBlobSize > 0)
+            {
+                DWORD cchGallery = 0;
+                CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &cchGallery);
+                char* pszGallery = (char*)HeapAlloc(GetProcessHeap(), 0, cchGallery + 1);
+                if (pszGallery)
+                {
+                    CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, pszGallery, &cchGallery);
+                    int score = 0;
+                    if (WorkerMatch(pszProbe, pszGallery, &score) && score >= 500)
+                    {
+                        if (record.Identity) *Identity = *record.Identity;
+                        *SubFactor = record.SubFactor;
+                        if (PayloadBlob && record.PayloadBlobSize > 0)
+                        {
+                            *PayloadBlob = record.PayloadBlob;
+                            if (PayloadBlobSize) *PayloadBlobSize = record.PayloadBlobSize;
+                        }
+                        bFound = TRUE;
+                        HeapFree(GetProcessHeap(), 0, pszGallery);
+                        break;
+                    }
+                    HeapFree(GetProcessHeap(), 0, pszGallery);
+                }
+            }
+            if (!Pipeline->StorageInterface->NextRecord) break;
+            hr = Pipeline->StorageInterface->NextRecord(Pipeline);
+        }
+    }
+
+    // Fallback: If no storage records exist yet or single-user test mode, match against in-memory template
+    if (!bFound && pCtx->cbEnrollmentTemplate > 0)
+    {
+        BOOLEAN bMatch = FALSE;
+        EngineAdapterVerifyFeatureSet(Pipeline, Identity, *SubFactor, &bMatch, PayloadBlob, PayloadBlobSize, HashValue, HashSize, RejectDetail);
+        if (bMatch) bFound = TRUE;
+    }
+
+    HeapFree(GetProcessHeap(), 0, pszProbe);
+
+    if (bFound)
+    {
+        OutputDebugStringW(L"[MFS100EngineAdapter] Identify matched enrolled identity!");
         return S_OK;
     }
+
     return WINBIO_E_UNKNOWN_ID;
 }
 
