@@ -51,66 +51,71 @@ static void WriteRegStrings(HKEY hKey)
     RegSetValueExW(hKey, L"SensorAdapterBinary", 0, REG_SZ, (const BYTE*)szSensor, (DWORD)(wcslen(szSensor) + 1) * sizeof(WCHAR));
     RegSetValueExW(hKey, L"EngineAdapterBinary", 0, REG_SZ, (const BYTE*)szEngine, (DWORD)(wcslen(szEngine) + 1) * sizeof(WCHAR));
     RegSetValueExW(hKey, L"StorageAdapterBinary", 0, REG_SZ, (const BYTE*)szStorage, (DWORD)(wcslen(szStorage) + 1) * sizeof(WCHAR));
-    RegSetValueExW(hKey, L"DatabaseId", 0, REG_SZ, (const BYTE*)szDbGuid, (DWORD)(wcslen(szDbGuid) + 1) * sizeof(WCHAR));
+    RegSetValueExW(hKey, L"DatabaseId", 0, REG_SZ, (const BYTE*)szDbRaw, (DWORD)(wcslen(szDbRaw) + 1) * sizeof(WCHAR));
     RegSetValueExW(hKey, L"SensorMode", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
     RegSetValueExW(hKey, L"SystemSensor", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
     RegSetValueExW(hKey, L"Exclusive", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
 }
 
-static void ConfigureGlobalWinBioDatabases()
+static void PopulateWbioSrvcDatabase(const wchar_t* pszSubKey)
 {
-    // 1. Service Database key: HKLM\SYSTEM\CurrentControlSet\Services\WbioSrvc\Databases\{B16F0239-0144-4284-9D27-E4B283626155}
     WCHAR szServiceDbKey[512];
     StringCchPrintfW(szServiceDbKey, ARRAYSIZE(szServiceDbKey),
-                     L"SYSTEM\\CurrentControlSet\\Services\\WbioSrvc\\Databases\\%s", szDbGuid);
+                     L"SYSTEM\\CurrentControlSet\\Services\\WbioSrvc\\Databases\\%s", pszSubKey);
     HKEY hSvcDb = NULL;
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szServiceDbKey, 0, NULL, 0, KEY_WRITE, NULL, &hSvcDb, NULL) == ERROR_SUCCESS)
     {
         DWORD dwOne = 1;
-        DWORD dwZero = 0;
         DWORD dwType = 8; // WINBIO_TYPE_FINGERPRINT
         DWORD dwSize = 32;
         const wchar_t szEmpty[] = L"";
-        const wchar_t szFilePath[] = L"C:\\WINDOWS\\SYSTEM32\\WINBIODATABASE\\B16F0239-0144-4284-9D27-E4B283626155.DAT";
-        const wchar_t szFormat[] = L"AAF42352-63C7-424D-871C-03DCA07CB0D8";
-        const wchar_t szStorage[] = L"winbiostorageadapter.dll";
+        const wchar_t szFormat[] = L"00000000-0000-0000-0000-000000000000";
 
         RegSetValueExW(hSvcDb, L"Attributes", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
         RegSetValueExW(hSvcDb, L"AutoCreate", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
-        RegSetValueExW(hSvcDb, L"AutoName", 0, REG_DWORD, (const BYTE*)&dwZero, sizeof(dwZero));
+        RegSetValueExW(hSvcDb, L"AutoName", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
         RegSetValueExW(hSvcDb, L"BiometricType", 0, REG_DWORD, (const BYTE*)&dwType, sizeof(dwType));
         RegSetValueExW(hSvcDb, L"ConnectionString", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
-        RegSetValueExW(hSvcDb, L"FilePath", 0, REG_SZ, (const BYTE*)szFilePath, (DWORD)(wcslen(szFilePath) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hSvcDb, L"FilePath", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
         RegSetValueExW(hSvcDb, L"Format", 0, REG_SZ, (const BYTE*)szFormat, (DWORD)(wcslen(szFormat) + 1) * sizeof(WCHAR));
         RegSetValueExW(hSvcDb, L"InitialSize", 0, REG_DWORD, (const BYTE*)&dwSize, sizeof(dwSize));
-        RegSetValueExW(hSvcDb, L"StorageAdapterBinary", 0, REG_SZ, (const BYTE*)szStorage, (DWORD)(wcslen(szStorage) + 1) * sizeof(WCHAR));
         RegCloseKey(hSvcDb);
-        printf("[OK] WbioSrvc service database registry entry configured.\n");
     }
+}
 
-    // 2. WinBio Software Databases key: HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\WinBio\Databases\{B16F0239-0144-4284-9D27-E4B283626155}
-    WCHAR szSoftDbKey[512];
-    StringCchPrintfW(szSoftDbKey, ARRAYSIZE(szSoftDbKey),
-                     L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WinBio\\Databases\\%s", szDbGuid);
-    HKEY hSoftDb = NULL;
-    if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szSoftDbKey, 0, NULL, 0, KEY_WRITE, NULL, &hSoftDb, NULL) == ERROR_SUCCESS)
+static void ConfigureGlobalWinBioDatabases()
+{
+    // 1. Service Database keys: Populate BOTH {B16F...} and B16F... so any lookup style succeeds
+    PopulateWbioSrvcDatabase(szDbGuid);
+    PopulateWbioSrvcDatabase(szDbRaw);
+    printf("[OK] WbioSrvc service database registry entry configured.\n");
+
+    // 2. WinBio Software Databases keys
+    const wchar_t* dbKeys[2] = { szDbGuid, szDbRaw };
+    for (int k = 0; k < 2; k++)
     {
-        DWORD dwFactor = 8; // WINBIO_TYPE_FINGERPRINT
-        DWORD dwType = 1;
-        DWORD dwAttr = 1;
-        DWORD dwAuto = 1;
-        const wchar_t szEmpty[] = L"";
-        const wchar_t szFilePath[] = L"C:\\WINDOWS\\SYSTEM32\\WINBIODATABASE\\B16F0239-0144-4284-9D27-E4B283626155.DAT";
+        WCHAR szSoftDbKey[512];
+        StringCchPrintfW(szSoftDbKey, ARRAYSIZE(szSoftDbKey),
+                         L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WinBio\\Databases\\%s", dbKeys[k]);
+        HKEY hSoftDb = NULL;
+        if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szSoftDbKey, 0, NULL, 0, KEY_WRITE, NULL, &hSoftDb, NULL) == ERROR_SUCCESS)
+        {
+            DWORD dwFactor = 8; // WINBIO_TYPE_FINGERPRINT
+            DWORD dwType = 1;
+            DWORD dwAttr = 1;
+            DWORD dwAuto = 1;
+            const wchar_t szEmpty[] = L"";
 
-        RegSetValueExW(hSoftDb, L"BiometricFactor", 0, REG_DWORD, (const BYTE*)&dwFactor, sizeof(dwFactor));
-        RegSetValueExW(hSoftDb, L"DatabaseType", 0, REG_DWORD, (const BYTE*)&dwType, sizeof(dwType));
-        RegSetValueExW(hSoftDb, L"Attributes", 0, REG_DWORD, (const BYTE*)&dwAttr, sizeof(dwAttr));
-        RegSetValueExW(hSoftDb, L"AutoCreate", 0, REG_DWORD, (const BYTE*)&dwAuto, sizeof(dwAuto));
-        RegSetValueExW(hSoftDb, L"FilePath", 0, REG_SZ, (const BYTE*)szFilePath, (DWORD)(wcslen(szFilePath) + 1) * sizeof(WCHAR));
-        RegSetValueExW(hSoftDb, L"ConnectionString", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
-        RegCloseKey(hSoftDb);
-        printf("[OK] Software WinBio database registry entry configured.\n");
+            RegSetValueExW(hSoftDb, L"BiometricFactor", 0, REG_DWORD, (const BYTE*)&dwFactor, sizeof(dwFactor));
+            RegSetValueExW(hSoftDb, L"DatabaseType", 0, REG_DWORD, (const BYTE*)&dwType, sizeof(dwType));
+            RegSetValueExW(hSoftDb, L"Attributes", 0, REG_DWORD, (const BYTE*)&dwAttr, sizeof(dwAttr));
+            RegSetValueExW(hSoftDb, L"AutoCreate", 0, REG_DWORD, (const BYTE*)&dwAuto, sizeof(dwAuto));
+            RegSetValueExW(hSoftDb, L"FilePath", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
+            RegSetValueExW(hSoftDb, L"ConnectionString", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
+            RegCloseKey(hSoftDb);
+        }
     }
+    printf("[OK] Software WinBio database registry entry configured.\n");
 
     // 3. WinBio Software Global Configurations key
     WCHAR szSoftCfgKey[512];
@@ -200,7 +205,7 @@ static void ConfigureFingerprintVirtualSensor()
             RegSetValueExW(hCfg0, L"SensorAdapterBinary", 0, REG_SZ, (const BYTE*)szSensor, (DWORD)(wcslen(szSensor) + 1) * sizeof(WCHAR));
             RegSetValueExW(hCfg0, L"EngineAdapterBinary", 0, REG_SZ, (const BYTE*)szEngine, (DWORD)(wcslen(szEngine) + 1) * sizeof(WCHAR));
             RegSetValueExW(hCfg0, L"StorageAdapterBinary", 0, REG_SZ, (const BYTE*)szStorage, (DWORD)(wcslen(szStorage) + 1) * sizeof(WCHAR));
-            RegSetValueExW(hCfg0, L"DatabaseId", 0, REG_SZ, (const BYTE*)szDbGuid, (DWORD)(wcslen(szDbGuid) + 1) * sizeof(WCHAR));
+            RegSetValueExW(hCfg0, L"DatabaseId", 0, REG_SZ, (const BYTE*)szDbRaw, (DWORD)(wcslen(szDbRaw) + 1) * sizeof(WCHAR));
             RegSetValueExW(hCfg0, L"SensorMode", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
             RegSetValueExW(hCfg0, L"SystemSensor", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
             RegCloseKey(hCfg0);
