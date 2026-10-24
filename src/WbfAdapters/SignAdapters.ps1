@@ -31,10 +31,13 @@ $cerPath = Join-Path $distDir "MantraWbfCert.cer"
 Export-Certificate -Cert $cert -FilePath $cerPath -Force | Out-Null
 Write-Host "[OK] Exported Certificate to: $cerPath"
 
-# 3. Sign target files non-interactively
-# (The public certificate MantraWbfCert.cer is installed into LocalMachine\Root by 7_Register_WBF_Windows_Hello.bat)
+# 3. Locate SignTool.exe for /ph (page hashes) support
+$signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+if (-not $signtool) {
+    $signtool = Get-ChildItem -Path "C:\Program Files\Microsoft Visual Studio\*\*\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+}
 
-# 4. Sign target files
+# 4. Sign target files with Page Hashes (/ph)
 $targets = @(
     (Join-Path $scriptDir "MFS100SensorAdapter.dll"),
     (Join-Path $scriptDir "MFS100EngineAdapter.dll"),
@@ -49,8 +52,14 @@ if ($TargetDir -and (Test-Path $TargetDir)) {
 
 foreach ($target in $targets) {
     if (Test-Path $target) {
-        $sig = Set-AuthenticodeSignature -FilePath $target -Certificate $cert -HashAlgorithm SHA256
-        Write-Host "[SIGNED] $($target): $($sig.Status)"
+        if ($signtool) {
+            Write-Host "[SIGNING] Using signtool with /ph and /sha1 on: $target"
+            & $signtool sign /s My /sha1 $cert.Thumbprint /fd SHA256 /ph /v $target
+        } else {
+            Write-Host "[SIGNING] Using Set-AuthenticodeSignature on: $target"
+            $sig = Set-AuthenticodeSignature -FilePath $target -Certificate $cert -HashAlgorithm SHA256
+            Write-Host "[SIGNED] $($target): $($sig.Status)"
+        }
     }
 }
 

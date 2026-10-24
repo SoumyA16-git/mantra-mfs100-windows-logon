@@ -45,7 +45,29 @@ if exist "%~dp0MantraWbfCert.cer" (
     certutil -addstore -f "TrustedPublisher" "%~dp0MantraWbfCert.cer" >nul 2>&1
     echo    [OK] Certificate installed to Root and TrustedPublisher.
 )
-bcdedit /set testsigning on >nul 2>&1
+
+:: 4.5 Check and Configure Windows Test Mode for custom WBF drivers
+echo 4.5 Checking Windows Test-Signing Status...
+set "TESTMODE="
+for /f "tokens=2" %%i in ('bcdedit 2^>nul ^| findstr /i "testsigning"') do set "TESTMODE=%%i"
+if /i "!TESTMODE!"=="Yes" (
+    echo    [OK] Windows Test Mode is currently ACTIVE.
+) else (
+    echo    [INFO] Enabling Windows Test Mode in BCD...
+    bcdedit /set testsigning on
+    if errorlevel 1 (
+        echo.
+        echo    [WARNING] Could not enable Test Mode. If Secure Boot is ON in VMware VM:
+        echo      1. Shut down the VM.
+        echo      2. In VMware: VM Settings -^> Options -^> Advanced -^> Firmware type: uncheck "Enable Secure Boot".
+        echo      3. Start VM and re-run this script.
+        echo.
+    ) else (
+        echo.
+        echo    [NOTE] Test Mode enabled in BCD. Windows requires a REBOOT for Test Mode to become active.
+        echo.
+    )
+)
 
 :: 5. Clean up any invalid legacy entries
 echo 5. Cleaning legacy sensor entries...
