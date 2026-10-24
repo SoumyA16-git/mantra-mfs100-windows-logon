@@ -233,8 +233,23 @@ static DWORD WINAPI CaptureThreadProc(LPVOID lpParam)
         }
         else
         {
-            pTask->hrResult = WINBIO_E_BAD_CAPTURE;
-            pTask->RejectDetail = WINBIO_FP_TOO_FAST;
+            if (strstr(szBuffer, "-1141") != NULL || strstr(szBuffer, "cancel") != NULL || strstr(szBuffer, "Cancel") != NULL)
+            {
+                pTask->hrResult = WINBIO_E_CANCELED;
+                pTask->RejectDetail = 0;
+                WbfLog(L"[MFS100SensorAdapter] Capture was cancelled (sleep or user). Returning WINBIO_E_CANCELED.");
+            }
+            else if (strstr(szBuffer, "-1140") != NULL || strstr(szBuffer, "timeout") != NULL || strstr(szBuffer, "Timeout") != NULL)
+            {
+                pTask->hrResult = WINBIO_E_CANCELED;
+                pTask->RejectDetail = 0;
+                WbfLog(L"[MFS100SensorAdapter] Capture timed out without finger. Returning WINBIO_E_CANCELED.");
+            }
+            else
+            {
+                pTask->hrResult = WINBIO_E_BAD_CAPTURE;
+                pTask->RejectDetail = WINBIO_FP_TOO_FAST;
+            }
         }
     }
     else

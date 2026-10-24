@@ -10,6 +10,7 @@ namespace MFS100BridgeSvc
         private PipeServer? _pipeServer;
 
         public const string ServiceNameIdentifier = "MFS100BridgeSvc";
+        public static volatile bool IsSystemSuspending = false;
 
         public BridgeService()
         {
@@ -26,12 +27,20 @@ namespace MFS100BridgeSvc
             if (powerStatus == PowerBroadcastStatus.Suspend || (int)powerStatus == 0x0004)
             {
                 ServiceLog.Info("System is suspending/sleeping. Stopping sensor capture...");
+                IsSystemSuspending = true;
                 try
                 {
                     using var cancelEvent = EventWaitHandle.OpenExisting(@"Global\MFS100_CancelCapture");
                     cancelEvent.Set();
                 }
                 catch { }
+            }
+            else if (powerStatus == PowerBroadcastStatus.ResumeAutomatic ||
+                     powerStatus == PowerBroadcastStatus.ResumeSuspend ||
+                     (int)powerStatus == 0x0012 || (int)powerStatus == 0x0007)
+            {
+                ServiceLog.Info("System resumed from sleep.");
+                IsSystemSuspending = false;
             }
             return base.OnPowerEvent(powerStatus);
         }

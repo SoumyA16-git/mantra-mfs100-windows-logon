@@ -229,6 +229,12 @@ namespace MFS100BridgeSvc
 
                     case "capture":
                     {
+                        if (BridgeService.IsSystemSuspending)
+                        {
+                            ServiceLog.Warn("Rejecting capture request because system is currently suspending/sleeping.");
+                            return Protocol.CreateErrorJson(-1141, "Capture cancelled - system is suspending");
+                        }
+
                         int timeoutMs = req["timeoutMs"]?.Value<int>() ?? 10000;
                         if (timeoutMs <= 0) timeoutMs = 10000;
 
