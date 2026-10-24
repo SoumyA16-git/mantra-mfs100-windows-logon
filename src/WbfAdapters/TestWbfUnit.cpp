@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <winbio.h>
 #include <winbio_err.h>
 
@@ -29,12 +30,20 @@ int main()
     PWINBIO_UNIT_SCHEMA unitSchemas = NULL;
     SIZE_T unitCount = 0;
     HRESULT hr = WinBioEnumBiometricUnits(WINBIO_TYPE_FINGERPRINT, &unitSchemas, &unitCount);
-    PrintHr("WinBioEnumBiometricUnits", hr);
+    PrintHr("WinBioEnumBiometricUnits (WINBIO_TYPE_FINGERPRINT)", hr);
 
     if (FAILED(hr) || unitCount == 0)
     {
-        printf("\n[ERROR] No fingerprint biometric units found by Windows Biometric Service (WbioSrvc)!\n");
-        printf("Ensure the WBF driver/adapters and INF are registered and WbioSrvc is running.\n");
+        printf("[INFO] No units for TYPE_FINGERPRINT. Trying WINBIO_TYPE_ANY...\n");
+        hr = WinBioEnumBiometricUnits(WINBIO_TYPE_ANY, &unitSchemas, &unitCount);
+        PrintHr("WinBioEnumBiometricUnits (WINBIO_TYPE_ANY)", hr);
+    }
+
+    if (FAILED(hr) || unitCount == 0)
+    {
+        printf("\n[ERROR] No biometric units found by Windows Biometric Service (WbioSrvc)!\n");
+        printf("--- Recent WbioSrvc Event Log Diagnostics ---\n");
+        system("powershell -NoProfile -Command \"Get-WinEvent -LogName 'Microsoft-Windows-Biometrics/Operational' -MaxEvents 6 -ErrorAction SilentlyContinue | Format-Table TimeCreated, Id, Message -Wrap -AutoSize\"");
         return 1;
     }
 
