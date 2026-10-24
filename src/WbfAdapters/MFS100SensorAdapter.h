@@ -31,13 +31,24 @@ typedef struct _MFS100_SENSOR_CONTEXT {
     WINBIO_BIOMETRIC_SUBTYPE Subtype;
 } MFS100_SENSOR_CONTEXT, *PMFS100_SENSOR_CONTEXT;
 
-// Helper to log debug strings to OutputDebugStringW
+// Helper to log debug strings to OutputDebugStringW and file
 inline void WbfLog(PCWSTR pszFormat, ...)
 {
-    WCHAR szBuffer[1024];
+    WCHAR szBuffer[2048];
     va_list args;
     va_start(args, pszFormat);
     StringCchVPrintfW(szBuffer, ARRAYSIZE(szBuffer), pszFormat, args);
     va_end(args);
     OutputDebugStringW(szBuffer);
+
+    CreateDirectoryW(L"C:\\ProgramData\\MFS100CP", NULL);
+    CreateDirectoryW(L"C:\\ProgramData\\MFS100CP\\logs", NULL);
+    FILE* fp = NULL;
+    if (_wfopen_s(&fp, L"C:\\ProgramData\\MFS100CP\\logs\\wbf_adapters.log", L"a, ccs=UTF-8") == 0 && fp)
+    {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        fwprintf(fp, L"%02d:%02d:%02d.%03d %s\n", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, szBuffer);
+        fclose(fp);
+    }
 }

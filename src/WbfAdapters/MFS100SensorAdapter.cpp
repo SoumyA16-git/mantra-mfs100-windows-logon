@@ -246,7 +246,7 @@ static HRESULT WINAPI SensorAdapterAttach(PWINBIO_PIPELINE Pipeline)
     if (!pCtx) return E_OUTOFMEMORY;
 
     pCtx->hCancelEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-    pCtx->Status = WINBIO_SENSOR_ACCEPT;
+    pCtx->Status = WINBIO_SENSOR_READY;
     pCtx->Subtype = WINBIO_SUBTYPE_NO_INFORMATION;
 
     Pipeline->SensorContext = (PWINIBIO_SENSOR_CONTEXT)pCtx;
@@ -279,6 +279,7 @@ static HRESULT WINAPI SensorAdapterClearContext(PWINBIO_PIPELINE Pipeline)
         pCtx->pCurrentSample = NULL;
         pCtx->cbCurrentSample = 0;
     }
+    pCtx->Status = WINBIO_SENSOR_READY;
     return S_OK;
 }
 
@@ -286,13 +287,18 @@ static HRESULT WINAPI SensorAdapterQueryStatus(PWINBIO_PIPELINE Pipeline, PWINBI
 {
     if (Pipeline == NULL || Status == NULL) return E_POINTER;
     PMFS100_SENSOR_CONTEXT pCtx = (PMFS100_SENSOR_CONTEXT)Pipeline->SensorContext;
-    *Status = (pCtx != NULL) ? pCtx->Status : WINBIO_SENSOR_ACCEPT;
+    *Status = (pCtx != NULL) ? pCtx->Status : WINBIO_SENSOR_READY;
+    WbfLog(L"[MFS100SensorAdapter] SensorAdapterQueryStatus returned: %lu", *Status);
     return S_OK;
 }
 
 static HRESULT WINAPI SensorAdapterReset(PWINBIO_PIPELINE Pipeline)
 {
     WbfLog(L"[MFS100SensorAdapter] SensorAdapterReset called.");
+    if (Pipeline && Pipeline->SensorContext)
+    {
+        ((PMFS100_SENSOR_CONTEXT)Pipeline->SensorContext)->Status = WINBIO_SENSOR_READY;
+    }
     return SensorAdapterClearContext(Pipeline);
 }
 
@@ -319,6 +325,11 @@ static HRESULT WINAPI SensorAdapterStartCapture(PWINBIO_PIPELINE Pipeline, WINBI
     WbfLog(L"[MFS100SensorAdapter] SensorAdapterStartCapture called. Purpose=0x%X", Purpose);
     if (Pipeline == NULL || Overlapped == NULL) return E_POINTER;
 
+    if (Pipeline->SensorContext)
+    {
+        ((PMFS100_SENSOR_CONTEXT)Pipeline->SensorContext)->Status = WINBIO_SENSOR_BUSY;
+    }
+
     ZeroMemory(&g_CaptureTask, sizeof(CAPTURE_TASK));
     g_CaptureTask.Pipeline = Pipeline;
     g_CaptureTask.Purpose = Purpose;
@@ -330,6 +341,10 @@ static HRESULT WINAPI SensorAdapterStartCapture(PWINBIO_PIPELINE Pipeline, WINBI
     if (!g_CaptureTask.hThread)
     {
         CloseHandle(g_CaptureTask.Overlapped.hEvent);
+        if (Pipeline->SensorContext)
+        {
+            ((PMFS100_SENSOR_CONTEXT)Pipeline->SensorContext)->Status = WINBIO_SENSOR_READY;
+        }
         return HRESULT_FROM_WIN32(GetLastError());
     }
 
@@ -353,6 +368,12 @@ static HRESULT WINAPI SensorAdapterFinishCapture(PWINBIO_PIPELINE Pipeline, PWIN
         g_CaptureTask.Overlapped.hEvent = NULL;
     }
 
+    if (Pipeline && Pipeline->SensorContext)
+    {
+        ((PMFS100_SENSOR_CONTEXT)Pipeline->SensorContext)->Status = WINBIO_SENSOR_READY;
+    }
+
+    WbfLog(L"[MFS100SensorAdapter] SensorAdapterFinishCapture result: hr=0x%08X reject=%lu", g_CaptureTask.hrResult, g_CaptureTask.RejectDetail);
     return g_CaptureTask.hrResult;
 }
 
@@ -375,6 +396,10 @@ static HRESULT WINAPI SensorAdapterCancel(PWINBIO_PIPELINE Pipeline)
         CancelIoEx(g_CaptureTask.hActivePipe, NULL);
         CloseHandle(g_CaptureTask.hActivePipe);
         g_CaptureTask.hActivePipe = NULL;
+    }
+    if (Pipeline && Pipeline->SensorContext)
+    {
+        ((PMFS100_SENSOR_CONTEXT)Pipeline->SensorContext)->Status = WINBIO_SENSOR_READY;
     }
     return S_OK;
 }

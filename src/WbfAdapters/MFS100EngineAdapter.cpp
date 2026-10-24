@@ -67,7 +67,7 @@ static WINBIO_ENGINE_INTERFACE g_EngineInterface = {
 
 extern "C" HRESULT WINAPI WbioQueryEngineInterface(PWINBIO_ENGINE_INTERFACE *EngineInterface)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] WbioQueryEngineInterface called.");
+    WbfLog(L"[MFS100EngineAdapter] WbioQueryEngineInterface called.");
     if (EngineInterface == NULL) return E_POINTER;
     *EngineInterface = &g_EngineInterface;
     return S_OK;
@@ -102,7 +102,7 @@ static BOOL WorkerMatch(const char* szProbeB64, const char* szGalleryB64, int* p
 
 static HRESULT WINAPI EngineAdapterAttach(PWINBIO_PIPELINE Pipeline)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterAttach called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterAttach called.");
     if (Pipeline == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MFS100_ENGINE_CONTEXT));
@@ -115,7 +115,7 @@ static HRESULT WINAPI EngineAdapterAttach(PWINBIO_PIPELINE Pipeline)
 
 static HRESULT WINAPI EngineAdapterDetach(PWINBIO_PIPELINE Pipeline)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterDetach called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterDetach called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL) return E_POINTER;
 
     HeapFree(GetProcessHeap(), 0, Pipeline->EngineContext);
@@ -125,7 +125,7 @@ static HRESULT WINAPI EngineAdapterDetach(PWINBIO_PIPELINE Pipeline)
 
 static HRESULT WINAPI EngineAdapterClearContext(PWINBIO_PIPELINE Pipeline)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterClearContext called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterClearContext called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
@@ -181,7 +181,7 @@ static HRESULT WINAPI EngineAdapterQuerySampleHint(PWINBIO_PIPELINE Pipeline, PS
 
 static HRESULT WINAPI EngineAdapterAcceptSampleData(PWINBIO_PIPELINE Pipeline, PWINBIO_BIR SampleBuffer, SIZE_T SampleSize, WINBIO_BIR_PURPOSE Purpose, PWINBIO_REJECT_DETAIL RejectDetail)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterAcceptSampleData called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterAcceptSampleData called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || SampleBuffer == NULL || RejectDetail == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
@@ -204,7 +204,7 @@ static HRESULT WINAPI EngineAdapterAcceptSampleData(PWINBIO_PIPELINE Pipeline, P
     memcpy(pCtx->CurrentFeatureSet, pStandardData, cbStandardData);
     pCtx->cbCurrentFeatureSet = cbStandardData;
 
-    OutputDebugStringW(L"[MFS100EngineAdapter] Feature set extracted from sample successfully.");
+    WbfLog(L"[MFS100EngineAdapter] Feature set extracted from sample successfully.");
     return S_OK;
 }
 
@@ -244,7 +244,7 @@ static HRESULT WINAPI EngineAdapterExportEngineData(PWINBIO_PIPELINE Pipeline, W
 
 static HRESULT WINAPI EngineAdapterCreateEnrollment(PWINBIO_PIPELINE Pipeline)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterCreateEnrollment called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterCreateEnrollment called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
@@ -257,7 +257,7 @@ static HRESULT WINAPI EngineAdapterCreateEnrollment(PWINBIO_PIPELINE Pipeline)
 
 static HRESULT WINAPI EngineAdapterUpdateEnrollment(PWINBIO_PIPELINE Pipeline, PWINBIO_REJECT_DETAIL RejectDetail)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterUpdateEnrollment called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterUpdateEnrollment called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || RejectDetail == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
@@ -270,7 +270,7 @@ static HRESULT WINAPI EngineAdapterUpdateEnrollment(PWINBIO_PIPELINE Pipeline, P
     }
 
     pCtx->dwEnrollmentCount++;
-    OutputDebugStringW(L"[MFS100EngineAdapter] Enrollment step completed.");
+    WbfLog(L"[MFS100EngineAdapter] Enrollment step completed.");
 
     if (pCtx->cbCurrentFeatureSet > 0)
     {
@@ -280,7 +280,7 @@ static HRESULT WINAPI EngineAdapterUpdateEnrollment(PWINBIO_PIPELINE Pipeline, P
 
     if (pCtx->dwEnrollmentCount >= pCtx->dwEnrollmentTarget)
     {
-        OutputDebugStringW(L"[MFS100EngineAdapter] Enrollment complete! Ready to commit.");
+        WbfLog(L"[MFS100EngineAdapter] Enrollment complete! Ready to commit.");
         return S_OK;
     }
 
@@ -345,7 +345,7 @@ static HRESULT WINAPI EngineAdapterCheckForDuplicate(PWINBIO_PIPELINE Pipeline, 
 
 static HRESULT WINAPI EngineAdapterCommitEnrollment(PWINBIO_PIPELINE Pipeline, PWINBIO_IDENTITY Identity, WINBIO_BIOMETRIC_SUBTYPE SubFactor, PUCHAR PayloadBlob, SIZE_T PayloadBlobSize)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterCommitEnrollment called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterCommitEnrollment called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || Identity == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
@@ -367,18 +367,18 @@ static HRESULT WINAPI EngineAdapterCommitEnrollment(PWINBIO_PIPELINE Pipeline, P
         hr = Pipeline->StorageInterface->AddRecord(Pipeline, &record);
         if (FAILED(hr))
         {
-            OutputDebugStringW(L"[MFS100EngineAdapter] StorageInterface->AddRecord failed.");
+            WbfLog(L"[MFS100EngineAdapter] StorageInterface->AddRecord failed.");
             return hr;
         }
     }
 
-    OutputDebugStringW(L"[MFS100EngineAdapter] Enrollment committed to storage successfully!");
+    WbfLog(L"[MFS100EngineAdapter] Enrollment committed to storage successfully!");
     return S_OK;
 }
 
 static HRESULT WINAPI EngineAdapterDiscardEnrollment(PWINBIO_PIPELINE Pipeline)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterDiscardEnrollment called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterDiscardEnrollment called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL) return E_POINTER;
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
     pCtx->dwEnrollmentCount = 0;
@@ -388,7 +388,7 @@ static HRESULT WINAPI EngineAdapterDiscardEnrollment(PWINBIO_PIPELINE Pipeline)
 
 static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, PWINBIO_IDENTITY Identity, WINBIO_BIOMETRIC_SUBTYPE SubFactor, PBOOLEAN Match, PUCHAR *PayloadBlob, PSIZE_T PayloadBlobSize, PUCHAR *HashValue, PSIZE_T HashSize, PWINBIO_REJECT_DETAIL RejectDetail)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterVerifyFeatureSet called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterVerifyFeatureSet called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || Match == NULL || RejectDetail == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
@@ -423,7 +423,7 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
         if (score >= 500)
         {
             *Match = TRUE;
-            OutputDebugStringW(L"[MFS100EngineAdapter] Biometric MATCH verified!");
+            WbfLog(L"[MFS100EngineAdapter] Biometric MATCH verified!");
         }
     }
 
@@ -434,7 +434,7 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
 
 static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline, PWINBIO_IDENTITY Identity, PWINBIO_BIOMETRIC_SUBTYPE SubFactor, PUCHAR *PayloadBlob, PSIZE_T PayloadBlobSize, PUCHAR *HashValue, PSIZE_T HashSize, PWINBIO_REJECT_DETAIL RejectDetail)
 {
-    OutputDebugStringW(L"[MFS100EngineAdapter] EngineAdapterIdentifyFeatureSet called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterIdentifyFeatureSet called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || Identity == NULL || SubFactor == NULL || RejectDetail == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
@@ -502,7 +502,7 @@ static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline,
 
     if (bFound)
     {
-        OutputDebugStringW(L"[MFS100EngineAdapter] Identify matched enrolled identity!");
+        WbfLog(L"[MFS100EngineAdapter] Identify matched enrolled identity!");
         return S_OK;
     }
 
