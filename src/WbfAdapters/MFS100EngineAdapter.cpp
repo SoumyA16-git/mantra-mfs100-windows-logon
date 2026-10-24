@@ -62,22 +62,7 @@ static WINBIO_ENGINE_INTERFACE g_EngineInterface = {
     EngineAdapterCommitEnrollment,
     EngineAdapterDiscardEnrollment,
     EngineAdapterControlUnit,
-    EngineAdapterControlUnitPrivileged,
-    EngineAdapterNotifyPowerChange,
-    NULL, // Reserved_1
-    EngineAdapterPipelineInit,
-    EngineAdapterPipelineCleanup,
-    EngineAdapterActivate,
-    EngineAdapterDeactivate,
-    NULL, // QueryExtendedInfo
-    NULL, // IdentifyAll
-    EngineAdapterSetEnrollmentSelector,
-    EngineAdapterSetEnrollmentParameters,
-    NULL, // QueryExtendedEnrollmentStatus
-    EngineAdapterRefreshCache,
-    NULL, // SelectCalibrationFormat
-    NULL, // QueryCalibrationData
-    EngineAdapterSetAccountPolicy
+    EngineAdapterControlUnitPrivileged
 };
 
 extern "C" HRESULT WINAPI WbioQueryEngineInterface(PWINBIO_ENGINE_INTERFACE *EngineInterface)

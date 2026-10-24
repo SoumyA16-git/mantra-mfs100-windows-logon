@@ -17,6 +17,7 @@ static HRESULT WINAPI SensorAdapterExportSensorData(PWINBIO_PIPELINE Pipeline, P
 static HRESULT WINAPI SensorAdapterCancel(PWINBIO_PIPELINE Pipeline);
 static HRESULT WINAPI SensorAdapterPushDataToEngine(PWINBIO_PIPELINE Pipeline, WINBIO_BIR_PURPOSE Purpose, WINBIO_BIR_DATA_FLAGS Flags, PWINBIO_REJECT_DETAIL RejectDetail);
 static HRESULT WINAPI SensorAdapterControlUnit(PWINBIO_PIPELINE Pipeline, ULONG ControlCode, PUCHAR SendBuffer, SIZE_T SendBufferSize, PUCHAR ReceiveBuffer, SIZE_T ReceiveBufferSize, PSIZE_T ReceiveDataSize, PULONG OperationStatus);
+static HRESULT WINAPI SensorAdapterControlUnitPrivileged(PWINBIO_PIPELINE Pipeline, ULONG ControlCode, PUCHAR SendBuffer, SIZE_T SendBufferSize, PUCHAR ReceiveBuffer, SIZE_T ReceiveBufferSize, PSIZE_T ReceiveDataSize, PULONG OperationStatus);
 
 // Internal state for capture task
 typedef struct _CAPTURE_TASK {
@@ -50,7 +51,8 @@ static WINBIO_SENSOR_INTERFACE g_SensorInterface = {
     SensorAdapterExportSensorData,
     SensorAdapterCancel,
     SensorAdapterPushDataToEngine,
-    SensorAdapterControlUnit
+    SensorAdapterControlUnit,
+    SensorAdapterControlUnitPrivileged
 };
 
 extern "C" HRESULT WINAPI WbioQuerySensorInterface(PWINBIO_SENSOR_INTERFACE *SensorInterface)
@@ -367,4 +369,10 @@ static HRESULT WINAPI SensorAdapterPushDataToEngine(PWINBIO_PIPELINE Pipeline, W
 static HRESULT WINAPI SensorAdapterControlUnit(PWINBIO_PIPELINE Pipeline, ULONG ControlCode, PUCHAR SendBuffer, SIZE_T SendBufferSize, PUCHAR ReceiveBuffer, SIZE_T ReceiveBufferSize, PSIZE_T ReceiveDataSize, PULONG OperationStatus)
 {
     return E_NOTIMPL;
+}
+
+static HRESULT WINAPI SensorAdapterControlUnitPrivileged(PWINBIO_PIPELINE Pipeline, ULONG ControlCode, PUCHAR SendBuffer, SIZE_T SendBufferSize, PUCHAR ReceiveBuffer, SIZE_T ReceiveBufferSize, PSIZE_T ReceiveDataSize, PULONG OperationStatus)
+{
+    if (OperationStatus) *OperationStatus = 0;
+    return WINBIO_E_UNSUPPORTED_DATA_FORMAT;
 }

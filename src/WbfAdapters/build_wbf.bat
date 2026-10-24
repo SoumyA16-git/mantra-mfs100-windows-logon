@@ -51,6 +51,19 @@ if errorlevel 1 (
 )
 
 echo.
+echo 4. Compiling RegisterWbfDevice.exe...
+cl.exe /nologo /O2 /W3 /D_UNICODE /DUNICODE /DWIN32 /D_CONSOLE /EHsc /MT ^
+    /I. ^
+    RegisterWbfDevice.cpp ^
+    /link /OUT:RegisterWbfDevice.exe ^
+    setupapi.lib advapi32.lib user32.lib shlwapi.lib
+
+if errorlevel 1 (
+    echo [ERROR] RegisterWbfDevice.exe compilation failed!
+    exit /b 1
+)
+
+echo.
 echo ==================================================
 echo [SUCCESS] All WBF Components Compiled Successfully!
 echo ==================================================
@@ -59,5 +72,6 @@ mkdir "..\..\dist\MFS100_Deployment" 2>nul
 copy /y MFS100SensorAdapter.dll "..\..\dist\MFS100_Deployment\"
 copy /y MFS100EngineAdapter.dll "..\..\dist\MFS100_Deployment\"
 copy /y TestWbfUnit.exe "..\..\dist\MFS100_Deployment\"
+copy /y RegisterWbfDevice.exe "..\..\dist\MFS100_Deployment\"
 copy /y mfs100_wbf.inf "..\..\dist\MFS100_Deployment\"
 del *.obj *.exp *.lib 2>nul
