@@ -3,9 +3,12 @@ echo ==================================================
 echo   Mantra MFS100 WBF and Bridge Service Logs
 echo ==================================================
 echo.
-echo --- WBF Adapters Log (Last 100 lines) ---
+echo --- WinBioDatabase Files ---
+dir /a "C:\Windows\System32\WinBioDatabase\*" 2>nul
+echo.
+echo --- WBF Adapters Log (Last 200 lines) ---
 if exist "C:\ProgramData\MFS100CP\logs\wbf_adapters.log" (
-    powershell -NoProfile -Command "Get-Content 'C:\ProgramData\MFS100CP\logs\wbf_adapters.log' -Tail 100"
+    powershell -NoProfile -Command "Get-Content 'C:\ProgramData\MFS100CP\logs\wbf_adapters.log' -Tail 200"
 ) else (
     echo [No WBF Adapters log found]
 )

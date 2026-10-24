@@ -156,7 +156,7 @@ namespace MFS100Worker
 
                 if (ret != 0)
                 {
-                    string msg = _mfs!.GetErrorMsg(ret);
+                    string msg = _mfs?.GetErrorMsg(ret) ?? $"Error code {ret}";
                     WorkerLog.Warn($"Capture failed: code={ret} msg={msg}");
                     return Fail(ret, msg);
                 }

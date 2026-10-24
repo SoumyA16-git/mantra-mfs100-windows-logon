@@ -351,6 +351,7 @@ static HRESULT WINAPI EngineAdapterAcceptSampleData(PWINBIO_PIPELINE Pipeline, P
 
 static HRESULT WINAPI EngineAdapterExportEngineData(PWINBIO_PIPELINE Pipeline, WINBIO_BIR_DATA_FLAGS Flags, PWINBIO_BIR *SampleBuffer, PSIZE_T SampleSize)
 {
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterExportEngineData called: Flags=0x%X", Flags);
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || SampleBuffer == NULL || SampleSize == NULL) return E_POINTER;
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
 
@@ -411,7 +412,7 @@ static HRESULT WINAPI EngineAdapterUpdateEnrollment(PWINBIO_PIPELINE Pipeline, P
     }
 
     pCtx->dwEnrollmentCount++;
-    WbfLog(L"[MFS100EngineAdapter] Enrollment step completed.");
+    WbfLog(L"[MFS100EngineAdapter] Enrollment step completed (%lu/%lu).", pCtx->dwEnrollmentCount, pCtx->dwEnrollmentTarget);
 
     if (pCtx->cbCurrentFeatureSet > 0)
     {
@@ -430,6 +431,7 @@ static HRESULT WINAPI EngineAdapterUpdateEnrollment(PWINBIO_PIPELINE Pipeline, P
 
 static HRESULT WINAPI EngineAdapterGetEnrollmentStatus(PWINBIO_PIPELINE Pipeline, PWINBIO_REJECT_DETAIL RejectDetail)
 {
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterGetEnrollmentStatus called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || RejectDetail == NULL) return E_POINTER;
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
     *RejectDetail = 0;
@@ -443,6 +445,7 @@ static HRESULT WINAPI EngineAdapterGetEnrollmentStatus(PWINBIO_PIPELINE Pipeline
 
 static HRESULT WINAPI EngineAdapterGetEnrollmentHash(PWINBIO_PIPELINE Pipeline, PUCHAR *HashValue, PSIZE_T HashSize)
 {
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterGetEnrollmentHash called.");
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || HashValue == NULL || HashSize == NULL) return E_POINTER;
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
 
@@ -461,11 +464,13 @@ static HRESULT WINAPI EngineAdapterGetEnrollmentHash(PWINBIO_PIPELINE Pipeline, 
 
         if (CryptCreateHash(hProv, algId, 0, 0, &hHash))
         {
-            CryptHashData(hHash, pCtx->EnrollmentTemplate, (DWORD)pCtx->cbEnrollmentTemplate, 0);
-            DWORD dwHashLen = sizeof(pCtx->EnrollmentHash);
-            if (CryptGetHashParam(hHash, HP_HASHVAL, pCtx->EnrollmentHash, &dwHashLen, 0))
+            if (CryptHashData(hHash, pCtx->EnrollmentTemplate, (DWORD)pCtx->cbEnrollmentTemplate, 0))
             {
-                pCtx->cbEnrollmentHash = dwHashLen;
+                DWORD dwHashLen = sizeof(pCtx->EnrollmentHash);
+                if (CryptGetHashParam(hHash, HP_HASHVAL, pCtx->EnrollmentHash, &dwHashLen, 0))
+                {
+                    pCtx->cbEnrollmentHash = dwHashLen;
+                }
             }
             CryptDestroyHash(hHash);
         }
@@ -474,19 +479,23 @@ static HRESULT WINAPI EngineAdapterGetEnrollmentHash(PWINBIO_PIPELINE Pipeline, 
 
     *HashValue = pCtx->EnrollmentHash;
     *HashSize = pCtx->cbEnrollmentHash;
+    WbfLog(L"[MFS100EngineAdapter] GetEnrollmentHash returning size=%llu", pCtx->cbEnrollmentHash);
     return S_OK;
 }
 
 static HRESULT WINAPI EngineAdapterCheckForDuplicate(PWINBIO_PIPELINE Pipeline, PWINBIO_IDENTITY Identity, PWINBIO_BIOMETRIC_SUBTYPE SubFactor, PBOOLEAN Duplicate)
 {
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterCheckForDuplicate called.");
     if (Duplicate == NULL) return E_POINTER;
     *Duplicate = FALSE;
+    if (SubFactor) *SubFactor = WINBIO_SUBTYPE_NO_INFORMATION;
     return S_OK;
 }
 
 static HRESULT WINAPI EngineAdapterCommitEnrollment(PWINBIO_PIPELINE Pipeline, PWINBIO_IDENTITY Identity, WINBIO_BIOMETRIC_SUBTYPE SubFactor, PUCHAR PayloadBlob, SIZE_T PayloadBlobSize)
 {
-    WbfLog(L"[MFS100EngineAdapter] EngineAdapterCommitEnrollment called.");
+    WbfLog(L"[MFS100EngineAdapter] EngineAdapterCommitEnrollment called: SubFactor=0x%02X, PayloadSize=%llu",
+           SubFactor, PayloadBlobSize);
     if (Pipeline == NULL || Pipeline->EngineContext == NULL || Identity == NULL) return E_POINTER;
 
     PMFS100_ENGINE_CONTEXT pCtx = (PMFS100_ENGINE_CONTEXT)Pipeline->EngineContext;
@@ -506,11 +515,15 @@ static HRESULT WINAPI EngineAdapterCommitEnrollment(PWINBIO_PIPELINE Pipeline, P
     if (Pipeline->StorageInterface && Pipeline->StorageInterface->AddRecord)
     {
         hr = Pipeline->StorageInterface->AddRecord(Pipeline, &record);
+        WbfLog(L"[MFS100EngineAdapter] StorageInterface->AddRecord returned hr=0x%08X", hr);
         if (FAILED(hr))
         {
-            WbfLog(L"[MFS100EngineAdapter] StorageInterface->AddRecord failed.");
             return hr;
         }
+    }
+    else
+    {
+        WbfLog(L"[MFS100EngineAdapter] Commit ERROR: StorageInterface or AddRecord is NULL!");
     }
 
     WbfLog(L"[MFS100EngineAdapter] Enrollment committed to storage successfully!");
@@ -554,70 +567,104 @@ static HRESULT WINAPI EngineAdapterVerifyFeatureSet(PWINBIO_PIPELINE Pipeline, P
     CryptBinaryToStringA(pCtx->CurrentFeatureSet, (DWORD)pCtx->cbCurrentFeatureSet, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, pszProbe, &cchProbe);
 
     BOOLEAN bFound = FALSE;
-    if (Pipeline->StorageInterface && Pipeline->StorageInterface->FirstRecord && Pipeline->StorageInterface->GetCurrentRecord)
+    if (!Pipeline->StorageInterface)
     {
-        HRESULT hr = Pipeline->StorageInterface->FirstRecord(Pipeline);
+        WbfLog(L"[MFS100EngineAdapter] Verify ERROR: Pipeline->StorageInterface is NULL!");
+    }
+    else
+    {
+        if (Pipeline->StorageInterface->GetRecordCount)
+        {
+            SIZE_T count = 0;
+            HRESULT hrCount = Pipeline->StorageInterface->GetRecordCount(Pipeline, &count);
+            WbfLog(L"[MFS100EngineAdapter] Verify: StorageInterface->GetRecordCount returned hr=0x%08X, count=%llu", hrCount, count);
+        }
+
+        WINBIO_IDENTITY queryId = { 0 };
+        if (Identity != NULL)
+        {
+            queryId = *Identity;
+        }
+        else
+        {
+            queryId.Type = WINBIO_ID_TYPE_WILDCARD;
+        }
+
+        WINBIO_BIOMETRIC_SUBTYPE querySub = SubFactor;
+        if (querySub == WINBIO_SUBTYPE_NO_INFORMATION)
+        {
+            querySub = WINBIO_SUBTYPE_ANY;
+        }
+
+        HRESULT hr = E_FAIL;
+        if (Pipeline->StorageInterface->QueryBySubject)
+        {
+            hr = Pipeline->StorageInterface->QueryBySubject(Pipeline, &queryId, querySub);
+            WbfLog(L"[MFS100EngineAdapter] Verify: QueryBySubject(sub=0x%02X) returned hr=0x%08X", querySub, hr);
+            if (FAILED(hr) && querySub != WINBIO_SUBTYPE_ANY)
+            {
+                hr = Pipeline->StorageInterface->QueryBySubject(Pipeline, &queryId, WINBIO_SUBTYPE_ANY);
+                WbfLog(L"[MFS100EngineAdapter] Verify: QueryBySubject fallback(ANY) returned hr=0x%08X", hr);
+            }
+        }
+        else if (Pipeline->StorageInterface->FirstRecord)
+        {
+            hr = Pipeline->StorageInterface->FirstRecord(Pipeline);
+            WbfLog(L"[MFS100EngineAdapter] Verify: FirstRecord returned hr=0x%08X", hr);
+        }
+
+        int recIdx = 0;
         while (SUCCEEDED(hr))
         {
+            recIdx++;
             WINBIO_STORAGE_RECORD record = { 0 };
             HRESULT hrRecord = Pipeline->StorageInterface->GetCurrentRecord(Pipeline, &record);
+            WbfLog(L"[MFS100EngineAdapter] Verify: Record [%d] hr=0x%08X, sub=0x%02X, templSize=%llu, payloadSize=%llu",
+                   recIdx, hrRecord, record.SubFactor, record.TemplateBlobSize, record.PayloadBlobSize);
+
             if (SUCCEEDED(hrRecord) && record.TemplateBlob && record.TemplateBlobSize > 0)
             {
-                BOOL idMatch = (Identity == NULL || CompareIdentity(record.Identity, Identity));
-                BOOL subMatch = (SubFactor == WINBIO_SUBTYPE_NO_INFORMATION ||
-                                 SubFactor == WINBIO_SUBTYPE_ANY ||
-                                 record.SubFactor == WINBIO_SUBTYPE_NO_INFORMATION ||
-                                 record.SubFactor == WINBIO_SUBTYPE_ANY ||
-                                 record.SubFactor == SubFactor);
-
-                WbfLog(L"[MFS100EngineAdapter] Storage record: recSub=0x%02X reqSub=0x%02X (idMatch=%d, subMatch=%d, templSize=%llu, payloadSize=%llu)",
-                       record.SubFactor, SubFactor, idMatch, subMatch, record.TemplateBlobSize, record.PayloadBlobSize);
-
-                if (idMatch && subMatch)
+                DWORD cchGallery = 0;
+                CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &cchGallery);
+                char* pszGallery = (char*)HeapAlloc(GetProcessHeap(), 0, cchGallery + 1);
+                if (pszGallery)
                 {
-                    DWORD cchGallery = 0;
-                    CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, NULL, &cchGallery);
-                    char* pszGallery = (char*)HeapAlloc(GetProcessHeap(), 0, cchGallery + 1);
-                    if (pszGallery)
+                    CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, pszGallery, &cchGallery);
+                    int score = 0;
+                    if (WorkerMatch(pszProbe, pszGallery, &score))
                     {
-                        CryptBinaryToStringA(record.TemplateBlob, (DWORD)record.TemplateBlobSize, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, pszGallery, &cchGallery);
-                        int score = 0;
-                        if (WorkerMatch(pszProbe, pszGallery, &score))
+                        WbfLog(L"[MFS100EngineAdapter] Verify: Record [%d] match score=%d (threshold=200)", recIdx, score);
+                        if (score >= 200)
                         {
-                            WbfLog(L"[MFS100EngineAdapter] Verify: SubFactor=0x%02X match score=%d (threshold=200)",
-                                   record.SubFactor, score);
-                            if (score >= 200)
+                            *Match = TRUE;
+                            bFound = TRUE;
+
+                            ComputeTemplateHash(pCtx, record.TemplateBlob, record.TemplateBlobSize);
+                            if (HashValue) *HashValue = (pCtx->cbEnrollmentHash > 0) ? pCtx->EnrollmentHash : NULL;
+                            if (HashSize) *HashSize = pCtx->cbEnrollmentHash;
+
+                            if (record.PayloadBlob && record.PayloadBlobSize > 0)
                             {
-                                *Match = TRUE;
-                                bFound = TRUE;
-
-                                ComputeTemplateHash(pCtx, record.TemplateBlob, record.TemplateBlobSize);
-                                if (HashValue) *HashValue = (pCtx->cbEnrollmentHash > 0) ? pCtx->EnrollmentHash : NULL;
-                                if (HashSize) *HashSize = pCtx->cbEnrollmentHash;
-
-                                if (record.PayloadBlob && record.PayloadBlobSize > 0)
-                                {
-                                    SIZE_T toCopy = min(record.PayloadBlobSize, sizeof(pCtx->MatchedPayloadBlob));
-                                    memcpy(pCtx->MatchedPayloadBlob, record.PayloadBlob, toCopy);
-                                    pCtx->cbMatchedPayloadBlob = toCopy;
-                                    if (PayloadBlob) *PayloadBlob = pCtx->MatchedPayloadBlob;
-                                    if (PayloadBlobSize) *PayloadBlobSize = pCtx->cbMatchedPayloadBlob;
-                                }
-                                else
-                                {
-                                    pCtx->cbMatchedPayloadBlob = 0;
-                                    if (PayloadBlob) *PayloadBlob = NULL;
-                                    if (PayloadBlobSize) *PayloadBlobSize = 0;
-                                }
-
-                                WbfLog(L"[MFS100EngineAdapter] VerifyFeatureSet matched! Score=%d HashSize=%llu PayloadSize=%llu",
-                                       score, pCtx->cbEnrollmentHash, pCtx->cbMatchedPayloadBlob);
-                                HeapFree(GetProcessHeap(), 0, pszGallery);
-                                break;
+                                SIZE_T toCopy = min(record.PayloadBlobSize, sizeof(pCtx->MatchedPayloadBlob));
+                                memcpy(pCtx->MatchedPayloadBlob, record.PayloadBlob, toCopy);
+                                pCtx->cbMatchedPayloadBlob = toCopy;
+                                if (PayloadBlob) *PayloadBlob = pCtx->MatchedPayloadBlob;
+                                if (PayloadBlobSize) *PayloadBlobSize = pCtx->cbMatchedPayloadBlob;
                             }
+                            else
+                            {
+                                pCtx->cbMatchedPayloadBlob = 0;
+                                if (PayloadBlob) *PayloadBlob = NULL;
+                                if (PayloadBlobSize) *PayloadBlobSize = 0;
+                            }
+
+                            WbfLog(L"[MFS100EngineAdapter] Verify SUCCESS! Score=%d HashSize=%llu PayloadSize=%llu",
+                                   score, pCtx->cbEnrollmentHash, pCtx->cbMatchedPayloadBlob);
+                            HeapFree(GetProcessHeap(), 0, pszGallery);
+                            break;
                         }
-                        HeapFree(GetProcessHeap(), 0, pszGallery);
                     }
+                    HeapFree(GetProcessHeap(), 0, pszGallery);
                 }
             }
             if (!Pipeline->StorageInterface->NextRecord) break;
@@ -651,13 +698,44 @@ static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline,
     CryptBinaryToStringA(pCtx->CurrentFeatureSet, (DWORD)pCtx->cbCurrentFeatureSet, CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, pszProbe, &cchProbe);
 
     BOOLEAN bFound = FALSE;
-    if (Pipeline->StorageInterface && Pipeline->StorageInterface->FirstRecord && Pipeline->StorageInterface->GetCurrentRecord)
+
+    if (!Pipeline->StorageInterface)
     {
-        HRESULT hr = Pipeline->StorageInterface->FirstRecord(Pipeline);
+        WbfLog(L"[MFS100EngineAdapter] Identify ERROR: Pipeline->StorageInterface is NULL!");
+    }
+    else
+    {
+        if (Pipeline->StorageInterface->GetRecordCount)
+        {
+            SIZE_T count = 0;
+            HRESULT hrCount = Pipeline->StorageInterface->GetRecordCount(Pipeline, &count);
+            WbfLog(L"[MFS100EngineAdapter] Identify: StorageInterface->GetRecordCount returned hr=0x%08X, count=%llu", hrCount, count);
+        }
+
+        HRESULT hr = E_FAIL;
+        WINBIO_IDENTITY wildcardId = { 0 };
+        wildcardId.Type = WINBIO_ID_TYPE_WILDCARD;
+
+        if (Pipeline->StorageInterface->QueryBySubject)
+        {
+            hr = Pipeline->StorageInterface->QueryBySubject(Pipeline, &wildcardId, WINBIO_SUBTYPE_ANY);
+            WbfLog(L"[MFS100EngineAdapter] Identify: QueryBySubject(WILDCARD, ANY) returned hr=0x%08X", hr);
+        }
+        else if (Pipeline->StorageInterface->FirstRecord)
+        {
+            hr = Pipeline->StorageInterface->FirstRecord(Pipeline);
+            WbfLog(L"[MFS100EngineAdapter] Identify: FirstRecord returned hr=0x%08X", hr);
+        }
+
+        int recIdx = 0;
         while (SUCCEEDED(hr))
         {
+            recIdx++;
             WINBIO_STORAGE_RECORD record = { 0 };
             HRESULT hrRecord = Pipeline->StorageInterface->GetCurrentRecord(Pipeline, &record);
+            WbfLog(L"[MFS100EngineAdapter] Identify: Record [%d] hr=0x%08X, sub=0x%02X, templSize=%llu, payloadSize=%llu",
+                   recIdx, hrRecord, record.SubFactor, record.TemplateBlobSize, record.PayloadBlobSize);
+
             if (SUCCEEDED(hrRecord) && record.TemplateBlob && record.TemplateBlobSize > 0)
             {
                 DWORD cchGallery = 0;
@@ -669,8 +747,8 @@ static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline,
                     int score = 0;
                     if (WorkerMatch(pszProbe, pszGallery, &score))
                     {
-                        WbfLog(L"[MFS100EngineAdapter] Identify: Record SubFactor=0x%02X match score=%d (threshold=200)",
-                               record.SubFactor, score);
+                        WbfLog(L"[MFS100EngineAdapter] Identify: Record [%d] SubFactor=0x%02X match score=%d (threshold=200)",
+                               recIdx, record.SubFactor, score);
                         if (score >= 200)
                         {
                             if (record.Identity) *Identity = *record.Identity;
@@ -696,7 +774,7 @@ static HRESULT WINAPI EngineAdapterIdentifyFeatureSet(PWINBIO_PIPELINE Pipeline,
                                 if (PayloadBlobSize) *PayloadBlobSize = 0;
                             }
 
-                            WbfLog(L"[MFS100EngineAdapter] Identify matched identity! Score=%d HashSize=%llu PayloadSize=%llu",
+                            WbfLog(L"[MFS100EngineAdapter] Identify SUCCESS! Score=%d HashSize=%llu PayloadSize=%llu",
                                    score, pCtx->cbEnrollmentHash, pCtx->cbMatchedPayloadBlob);
                             HeapFree(GetProcessHeap(), 0, pszGallery);
                             break;
