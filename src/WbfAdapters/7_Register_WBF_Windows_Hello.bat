@@ -16,6 +16,10 @@ if errorlevel 1 (
 :: 1. Ensure MFS100 Bridge Service is installed and running
 echo 1. Updating and starting MFS100 Bridge Service...
 net stop MFS100BridgeSvc >nul 2>&1
+timeout /t 1 /nobreak >nul
+taskkill /f /im MFS100BridgeSvc.exe >nul 2>&1
+taskkill /f /im MFS100Worker.exe >nul 2>&1
+timeout /t 1 /nobreak >nul
 if exist "C:\Program Files\MFS100\" (
     copy /y "%~dp0MFS100BridgeSvc.exe" "C:\Program Files\MFS100\" >nul 2>&1
     copy /y "%~dp0MFS100Worker.exe" "C:\Program Files\MFS100\" >nul 2>&1

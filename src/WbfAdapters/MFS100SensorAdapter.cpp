@@ -159,46 +159,23 @@ static DWORD WINAPI CaptureThreadProc(LPVOID lpParam)
     PCAPTURE_TASK pTask = (PCAPTURE_TASK)lpParam;
     PMFS100_SENSOR_CONTEXT pCtx = (PMFS100_SENSOR_CONTEXT)pTask->Pipeline->SensorContext;
 
-    WbfLog(L"[MFS100SensorAdapter] Capture thread started.");
+    WbfLog(L"[MFS100SensorAdapter] Capture thread started. Connecting to MFS100 bridge...");
 
-    HANDLE hPipe = (pCtx != NULL) ? pCtx->hPipe : INVALID_HANDLE_VALUE;
-    if (hPipe == INVALID_HANDLE_VALUE || hPipe == NULL)
+    HANDLE hPipe = ConnectBridgePipe();
+    if (hPipe == INVALID_HANDLE_VALUE)
     {
-        hPipe = ConnectBridgePipe();
-        if (hPipe == INVALID_HANDLE_VALUE)
-        {
-            WbfLog(L"[MFS100SensorAdapter] Failed to connect to bridge pipe.");
-            pTask->hrResult = WINBIO_E_DEVICE_FAILURE;
-            pTask->RejectDetail = 0;
-            pTask->bCompleted = TRUE;
-            SetEvent(pTask->Overlapped.hEvent);
-            return 0;
-        }
-        if (pCtx) pCtx->hPipe = hPipe;
+        WbfLog(L"[MFS100SensorAdapter] Failed to connect to bridge pipe: %lu", GetLastError());
+        pTask->hrResult = WINBIO_E_DEVICE_FAILURE;
+        pTask->RejectDetail = 0;
+        pTask->bCompleted = TRUE;
+        SetEvent(pTask->Overlapped.hEvent);
+        return 0;
     }
     pTask->hActivePipe = hPipe;
 
-    const char szReq[] = "{\"cmd\":\"capture\",\"timeoutMs\":15000}\n";
+    const char szReq[] = "{\"cmd\":\"capture\",\"timeoutMs\":20000}\n";
     DWORD dwWritten = 0;
-    if (!WriteFile(hPipe, szReq, (DWORD)strlen(szReq), &dwWritten, NULL))
-    {
-        // If pipe broke, reconnect once
-        CloseHandle(hPipe);
-        if (pCtx) pCtx->hPipe = INVALID_HANDLE_VALUE;
-
-        hPipe = ConnectBridgePipe();
-        if (hPipe == INVALID_HANDLE_VALUE || !WriteFile(hPipe, szReq, (DWORD)strlen(szReq), &dwWritten, NULL))
-        {
-            if (hPipe != INVALID_HANDLE_VALUE) CloseHandle(hPipe);
-            pTask->hrResult = WINBIO_E_DEVICE_FAILURE;
-            pTask->RejectDetail = 0;
-            pTask->bCompleted = TRUE;
-            SetEvent(pTask->Overlapped.hEvent);
-            return 0;
-        }
-        if (pCtx) pCtx->hPipe = hPipe;
-        pTask->hActivePipe = hPipe;
-    }
+    WriteFile(hPipe, szReq, (DWORD)strlen(szReq), &dwWritten, NULL);
 
     char szBuffer[16384];
     if (ReadJsonLine(hPipe, szBuffer, sizeof(szBuffer)))
@@ -248,13 +225,12 @@ static DWORD WINAPI CaptureThreadProc(LPVOID lpParam)
     }
     else
     {
+        WbfLog(L"[MFS100SensorAdapter] ReadJsonLine returned FALSE (error=%lu)", GetLastError());
         pTask->hrResult = WINBIO_E_CANCELED;
         pTask->RejectDetail = 0;
-        CloseHandle(hPipe);
-        if (pCtx) pCtx->hPipe = INVALID_HANDLE_VALUE;
     }
 
-    // Retain pCtx->hPipe open across captures for immediate subsequent touches
+    CloseHandle(hPipe);
     pTask->hActivePipe = NULL;
     pTask->bCompleted = TRUE;
     SetEvent(pTask->Overlapped.hEvent);
@@ -269,7 +245,6 @@ static HRESULT WINAPI SensorAdapterAttach(PWINBIO_PIPELINE Pipeline)
     PMFS100_SENSOR_CONTEXT pCtx = (PMFS100_SENSOR_CONTEXT)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(MFS100_SENSOR_CONTEXT));
     if (!pCtx) return E_OUTOFMEMORY;
 
-    pCtx->hPipe = INVALID_HANDLE_VALUE;
     pCtx->hCancelEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
     pCtx->Status = WINBIO_SENSOR_ACCEPT;
     pCtx->Subtype = WINBIO_SUBTYPE_NO_INFORMATION;
@@ -284,11 +259,6 @@ static HRESULT WINAPI SensorAdapterDetach(PWINBIO_PIPELINE Pipeline)
     if (Pipeline == NULL || Pipeline->SensorContext == NULL) return E_POINTER;
 
     PMFS100_SENSOR_CONTEXT pCtx = (PMFS100_SENSOR_CONTEXT)Pipeline->SensorContext;
-    if (pCtx->hPipe != INVALID_HANDLE_VALUE && pCtx->hPipe != NULL)
-    {
-        CloseHandle(pCtx->hPipe);
-        pCtx->hPipe = INVALID_HANDLE_VALUE;
-    }
     if (pCtx->hCancelEvent) CloseHandle(pCtx->hCancelEvent);
     if (pCtx->pCurrentSample) HeapFree(GetProcessHeap(), 0, pCtx->pCurrentSample);
 
@@ -400,15 +370,11 @@ static HRESULT WINAPI SensorAdapterExportSensorData(PWINBIO_PIPELINE Pipeline, P
 static HRESULT WINAPI SensorAdapterCancel(PWINBIO_PIPELINE Pipeline)
 {
     WbfLog(L"[MFS100SensorAdapter] SensorAdapterCancel called.");
-    PMFS100_SENSOR_CONTEXT pCtx = Pipeline ? (PMFS100_SENSOR_CONTEXT)Pipeline->SensorContext : NULL;
     if (g_CaptureTask.hActivePipe != NULL)
     {
         CancelIoEx(g_CaptureTask.hActivePipe, NULL);
-    }
-    if (pCtx && pCtx->hPipe != INVALID_HANDLE_VALUE && pCtx->hPipe != NULL)
-    {
-        CloseHandle(pCtx->hPipe);
-        pCtx->hPipe = INVALID_HANDLE_VALUE;
+        CloseHandle(g_CaptureTask.hActivePipe);
+        g_CaptureTask.hActivePipe = NULL;
     }
     return S_OK;
 }
