@@ -16,11 +16,36 @@ static const GUID GUID_DEVINTERFACE_BIOMETRIC_READER =
 static const wchar_t szDbGuid[] = L"{B16F0239-0144-4284-9D27-E4B283626155}";
 static const wchar_t szDbRaw[]  = L"B16F0239-0144-4284-9D27-E4B283626155";
 
+static void DeployWbfAdapterBinaries()
+{
+    CreateDirectoryW(L"C:\\Windows\\System32\\WinBioPlugIns", NULL);
+    CreateDirectoryW(L"C:\\Windows\\System32\\WinBioDatabase", NULL);
+
+    WCHAR szModule[MAX_PATH];
+    GetModuleFileNameW(NULL, szModule, ARRAYSIZE(szModule));
+    WCHAR* pszSlash = wcsrchr(szModule, L'\\');
+    if (pszSlash) pszSlash[1] = L'\0';
+
+    WCHAR szSrcSensor[MAX_PATH], szSrcEngine[MAX_PATH];
+    StringCchPrintfW(szSrcSensor, ARRAYSIZE(szSrcSensor), L"%sMFS100SensorAdapter.dll", szModule);
+    StringCchPrintfW(szSrcEngine, ARRAYSIZE(szSrcEngine), L"%sMFS100EngineAdapter.dll", szModule);
+
+    // 1. Copy to System32\WinBioPlugIns (Primary location where WbioSrvc loads plugins)
+    CopyFileW(szSrcSensor, L"C:\\Windows\\System32\\WinBioPlugIns\\MFS100SensorAdapter.dll", FALSE);
+    CopyFileW(szSrcEngine, L"C:\\Windows\\System32\\WinBioPlugIns\\MFS100EngineAdapter.dll", FALSE);
+
+    // 2. Also copy to System32 root
+    CopyFileW(szSrcSensor, L"C:\\Windows\\System32\\MFS100SensorAdapter.dll", FALSE);
+    CopyFileW(szSrcEngine, L"C:\\Windows\\System32\\MFS100EngineAdapter.dll", FALSE);
+
+    printf("[OK] WBF adapter binaries deployed to System32\\WinBioPlugIns and System32.\n");
+}
+
 static void WriteRegStrings(HKEY hKey)
 {
     const wchar_t szSensor[] = L"MFS100SensorAdapter.dll";
     const wchar_t szEngine[] = L"MFS100EngineAdapter.dll";
-    const wchar_t szStorage[] = L"WinBioStorageAdapter.dll";
+    const wchar_t szStorage[] = L"winbiostorageadapter.dll";
     DWORD dwOne = 1;
 
     RegSetValueExW(hKey, L"SensorAdapterBinary", 0, REG_SZ, (const BYTE*)szSensor, (DWORD)(wcslen(szSensor) + 1) * sizeof(WCHAR));
@@ -34,11 +59,6 @@ static void WriteRegStrings(HKEY hKey)
 
 static void ConfigureGlobalWinBioDatabases()
 {
-    CreateDirectoryW(L"C:\\Windows\\System32\\WinBioDatabase", NULL);
-
-    WCHAR szFilePath[MAX_PATH];
-    StringCchPrintfW(szFilePath, ARRAYSIZE(szFilePath), L"C:\\Windows\\System32\\WinBioDatabase\\%s.DAT", szDbRaw);
-
     // 1. Service Database key: HKLM\SYSTEM\CurrentControlSet\Services\WbioSrvc\Databases\{B16F0239-0144-4284-9D27-E4B283626155}
     WCHAR szServiceDbKey[512];
     StringCchPrintfW(szServiceDbKey, ARRAYSIZE(szServiceDbKey),
@@ -47,7 +67,6 @@ static void ConfigureGlobalWinBioDatabases()
     if (RegCreateKeyExW(HKEY_LOCAL_MACHINE, szServiceDbKey, 0, NULL, 0, KEY_WRITE, NULL, &hSvcDb, NULL) == ERROR_SUCCESS)
     {
         DWORD dwOne = 1;
-        DWORD dwZero = 0;
         DWORD dwType = 8; // WINBIO_TYPE_FINGERPRINT
         DWORD dwSize = 32;
         const wchar_t szEmpty[] = L"";
@@ -55,10 +74,10 @@ static void ConfigureGlobalWinBioDatabases()
 
         RegSetValueExW(hSvcDb, L"Attributes", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
         RegSetValueExW(hSvcDb, L"AutoCreate", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne));
-        RegSetValueExW(hSvcDb, L"AutoName", 0, REG_DWORD, (const BYTE*)&dwZero, sizeof(dwZero));
+        RegSetValueExW(hSvcDb, L"AutoName", 0, REG_DWORD, (const BYTE*)&dwOne, sizeof(dwOne)); // AutoName = 1 allows storage adapter to auto-provision
         RegSetValueExW(hSvcDb, L"BiometricType", 0, REG_DWORD, (const BYTE*)&dwType, sizeof(dwType));
         RegSetValueExW(hSvcDb, L"ConnectionString", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
-        RegSetValueExW(hSvcDb, L"FilePath", 0, REG_SZ, (const BYTE*)szFilePath, (DWORD)(wcslen(szFilePath) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hSvcDb, L"FilePath", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty)); // FilePath = "" auto-resolves to WinBioDatabase directory
         RegSetValueExW(hSvcDb, L"Format", 0, REG_SZ, (const BYTE*)szFormat, (DWORD)(wcslen(szFormat) + 1) * sizeof(WCHAR));
         RegSetValueExW(hSvcDb, L"InitialSize", 0, REG_DWORD, (const BYTE*)&dwSize, sizeof(dwSize));
         RegCloseKey(hSvcDb);
@@ -82,7 +101,7 @@ static void ConfigureGlobalWinBioDatabases()
         RegSetValueExW(hSoftDb, L"DatabaseType", 0, REG_DWORD, (const BYTE*)&dwType, sizeof(dwType));
         RegSetValueExW(hSoftDb, L"Attributes", 0, REG_DWORD, (const BYTE*)&dwAttr, sizeof(dwAttr));
         RegSetValueExW(hSoftDb, L"AutoCreate", 0, REG_DWORD, (const BYTE*)&dwAuto, sizeof(dwAuto));
-        RegSetValueExW(hSoftDb, L"FilePath", 0, REG_SZ, (const BYTE*)szFilePath, (DWORD)(wcslen(szFilePath) + 1) * sizeof(WCHAR));
+        RegSetValueExW(hSoftDb, L"FilePath", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
         RegSetValueExW(hSoftDb, L"ConnectionString", 0, REG_SZ, (const BYTE*)szEmpty, sizeof(szEmpty));
         RegCloseKey(hSoftDb);
         printf("[OK] Software WinBio database registry entry configured.\n");
@@ -147,7 +166,7 @@ static void ConfigureFingerprintVirtualSensor()
         const wchar_t szModel[] = L"MFS100";
         const wchar_t szSerial[] = L"8E46E90C49AC";
         DWORD dwSub = 0;
-        ULONGLONG qwVer = 16777216; // REG_QWORD 0x01000000 (Matches SDK WINBIO_VERSION format)
+        ULONGLONG qwVer = 16777216; // REG_QWORD 0x01000000
 
         RegSetValueExW(hVSensor, L"Capabilities", 0, REG_DWORD, (const BYTE*)&dwCap, sizeof(dwCap));
         RegSetValueExW(hVSensor, L"DeviceDescription", 0, REG_SZ, (const BYTE*)szDesc, (DWORD)(wcslen(szDesc) + 1) * sizeof(WCHAR));
@@ -170,7 +189,7 @@ static void ConfigureFingerprintVirtualSensor()
         {
             const wchar_t szSensor[] = L"MFS100SensorAdapter.dll";
             const wchar_t szEngine[] = L"MFS100EngineAdapter.dll";
-            const wchar_t szStorage[] = L"WinBioStorageAdapter.dll";
+            const wchar_t szStorage[] = L"winbiostorageadapter.dll";
             DWORD dwOne = 1;
 
             RegSetValueExW(hCfg0, L"SensorAdapterBinary", 0, REG_SZ, (const BYTE*)szSensor, (DWORD)(wcslen(szSensor) + 1) * sizeof(WCHAR));
@@ -228,13 +247,16 @@ int main()
     printf("  MFS100 WBF Biometric Interface Register Utility \n");
     printf("==================================================\n\n");
 
-    // 1. Configure system and software WinBio databases
+    // 1. Deploy WBF adapter binaries to System32\WinBioPlugIns and System32
+    DeployWbfAdapterBinaries();
+
+    // 2. Configure system and software WinBio databases
     ConfigureGlobalWinBioDatabases();
 
-    // 2. Configure Virtual Sensor under Fingerprint Service Provider (Direct WbioSrvc Load)
+    // 3. Configure Virtual Sensor under Fingerprint Service Provider (Direct WbioSrvc Load)
     ConfigureFingerprintVirtualSensor();
 
-    // 3. Locate physical device node for PnP/SetupAPI binding
+    // 4. Locate physical device node for PnP/SetupAPI binding
     WCHAR szDeviceInstanceId[512] = L"";
     HDEVINFO hDevInfo = INVALID_HANDLE_VALUE;
     SP_DEVINFO_DATA devData = { 0 };
@@ -298,7 +320,7 @@ int main()
         StringCchCopyW(szDeviceInstanceId, ARRAYSIZE(szDeviceInstanceId), L"USB\\VID_2C0F&PID_1005\\8E46E90C49AC");
     }
 
-    // 4. Direct Registry: Populate DeviceClasses and Enum\...\Device Parameters
+    // 5. Direct Registry: Populate DeviceClasses and Enum\...\Device Parameters
     printf("\nPopulating WBF DeviceClasses registry key for WbioSrvc discovery...\n");
     const wchar_t* pszSerial = wcsrchr(szDeviceInstanceId, L'\\') ? wcsrchr(szDeviceInstanceId, L'\\') + 1 : L"8E46E90C49AC";
 
@@ -352,7 +374,7 @@ int main()
         printf("[SUCCESS] DeviceClasses WBF interface registered!\n");
     }
 
-    // 5. Populate into the device Enum hardware key
+    // 6. Populate into the device Enum hardware key
     WCHAR szEnumParamPath[1024];
     StringCchPrintfW(szEnumParamPath, ARRAYSIZE(szEnumParamPath),
                      L"SYSTEM\\CurrentControlSet\\Enum\\%s\\Device Parameters",
