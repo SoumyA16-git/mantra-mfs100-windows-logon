@@ -14,7 +14,12 @@ if errorlevel 1 (
 )
 
 :: 1. Ensure MFS100 Bridge Service is installed and running
-echo 1. Checking MFS100 Bridge Service...
+echo 1. Updating and starting MFS100 Bridge Service...
+net stop MFS100BridgeSvc >nul 2>&1
+if exist "C:\Program Files\MFS100\" (
+    copy /y "%~dp0MFS100BridgeSvc.exe" "C:\Program Files\MFS100\" >nul 2>&1
+    copy /y "%~dp0MFS100Worker.exe" "C:\Program Files\MFS100\" >nul 2>&1
+)
 sc query MFS100BridgeSvc >nul 2>&1
 if errorlevel 1 (
     if exist "%~dp04_Install_And_Start_Service.bat" (

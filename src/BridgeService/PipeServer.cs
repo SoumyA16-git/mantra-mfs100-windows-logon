@@ -189,8 +189,7 @@ namespace MFS100BridgeSvc
                 }
                 finally
                 {
-                    ServiceLog.Info("Client disconnected from named pipe. Resetting worker to ensure LED is OFF.");
-                    _workerHost.KillAndRestart();
+                    ServiceLog.Info("Client disconnected from named pipe.");
                 }
             }
         }
