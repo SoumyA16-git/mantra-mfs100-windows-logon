@@ -382,9 +382,15 @@ To cleanly remove the WBF integration and revert Windows to its default biometri
 
 `mantra mfs100 windows hello`, `how to unlock pc with mantra mfs100`, `mantra device se pc unlock kaise kare`, `mantra mfs100 windows 11 login`, `mantra fingerprint lock in pc`, `mantra mfs100 windows logon driver download`, `we couldn't find a fingerprint scanner compatible with windows hello fingerprint mantra`, `mantra mfs100 wbf driver`, `windows biometric framework mantra mfs100`, `mantra mfs100 laptop unlock`, `mantra fingerprint scanner for pc login`, `mfs100 without aadhaar rd service`, `windows 11 lock screen fingerprint mantra`.
 
+## Privacy & Code Signing Notice
+
+- **Privacy Policy**: This project does not collect or transmit telemetry or user data. See [PRIVACY.md](PRIVACY.md) for full details.
+- **Code Signing**: Free code signing provided by [SignPath.io](https://signpath.io) using a certificate by the [SignPath Foundation](https://signpath.org).
+
 ---
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.  
 All Mantra SDK binaries (`MFS100Dll.dll`, `iengine_ansi_iso.dll`, `MANTRA.MFS100.dll`, `mfs100driver-9.2.0.0.exe`) remain the intellectual property of Mantra Softech India Pvt. Ltd.
+
