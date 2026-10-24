@@ -88,7 +88,12 @@ namespace MFS100Worker
                 }
 
                 WorkerLog.Info($"RSP: {response}");
-                try { stdoutWriter.WriteLine(response); }
+                try
+                {
+                    stdoutWriter.WriteLine();
+                    stdoutWriter.WriteLine(response);
+                    stdoutWriter.Flush();
+                }
                 catch { break; }
             }
 

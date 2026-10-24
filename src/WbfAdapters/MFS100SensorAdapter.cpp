@@ -65,25 +65,39 @@ extern "C" HRESULT WINAPI WbioQuerySensorInterface(PWINBIO_SENSOR_INTERFACE *Sen
 
 static BOOL ReadJsonLine(HANDLE hPipe, char* pBuffer, DWORD maxBytes)
 {
-    DWORD total = 0;
-    while (total + 1 < maxBytes)
+    while (TRUE)
     {
-        char ch = 0;
-        DWORD bytesRead = 0;
-        if (!ReadFile(hPipe, &ch, 1, &bytesRead, NULL) || bytesRead == 0)
+        DWORD total = 0;
+        while (total + 1 < maxBytes)
         {
-            if (total > 0) break;
-            return FALSE;
+            char ch = 0;
+            DWORD bytesRead = 0;
+            if (!ReadFile(hPipe, &ch, 1, &bytesRead, NULL) || bytesRead == 0)
+            {
+                if (total > 0) break;
+                return FALSE;
+            }
+            if (ch == '\n')
+            {
+                if (total > 0) break;
+                continue;
+            }
+            if (ch != '\r') pBuffer[total++] = ch;
         }
-        if (ch == '\n')
+        pBuffer[total] = '\0';
+        if (total == 0) return FALSE;
+
+        char* pJson = strchr(pBuffer, '{');
+        if (pJson != NULL)
         {
-            if (total > 0) break;
-            continue;
+            if (pJson != pBuffer)
+            {
+                memmove(pBuffer, pJson, strlen(pJson) + 1);
+            }
+            return TRUE;
         }
-        if (ch != '\r') pBuffer[total++] = ch;
+        // If line contains no '{', it was non-JSON chatter; loop to read next line
     }
-    pBuffer[total] = '\0';
-    return (total > 0 && pBuffer[0] == '{');
 }
 
 static PWINBIO_BIR CreateBirFromTemplate(const char* szIsoBase64, WINBIO_BIR_PURPOSE Purpose, SIZE_T* pcbTotal)

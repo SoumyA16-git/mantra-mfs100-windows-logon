@@ -128,22 +128,7 @@ namespace MFS100BridgeSvc
         {
             string callerSid = string.Empty;
             bool callerIsAdmin = false;
-
-            try
-            {
-                pipe.RunAsClient(() =>
-                {
-                    using var identity = WindowsIdentity.GetCurrent();
-                    callerSid = identity.User?.Value ?? string.Empty;
-                    var principal = new WindowsPrincipal(identity);
-                    callerIsAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
-                });
-                ServiceLog.Info($"Pipe client identity resolved: SID='{callerSid}', IsAdmin={callerIsAdmin}");
-            }
-            catch (Exception ex)
-            {
-                ServiceLog.Warn($"Could not determine pipe caller identity: {ex.Message}");
-            }
+            bool identityResolved = false;
 
             using (pipe)
             using (var reader = new StreamReader(pipe, new UTF8Encoding(false)))
@@ -158,6 +143,26 @@ namespace MFS100BridgeSvc
 
                         line = line.Trim();
                         if (line.Length == 0) continue;
+
+                        if (!identityResolved)
+                        {
+                            try
+                            {
+                                pipe.RunAsClient(() =>
+                                {
+                                    using var identity = WindowsIdentity.GetCurrent();
+                                    callerSid = identity.User?.Value ?? string.Empty;
+                                    var principal = new WindowsPrincipal(identity);
+                                    callerIsAdmin = principal.IsInRole(WindowsBuiltInRole.Administrator);
+                                });
+                                identityResolved = true;
+                                ServiceLog.Info($"Pipe client identity resolved: SID='{callerSid}', IsAdmin={callerIsAdmin}");
+                            }
+                            catch (Exception ex)
+                            {
+                                ServiceLog.Warn($"Could not determine pipe caller identity: {ex.Message}");
+                            }
+                        }
 
                         ServiceLog.Info($"PIPE REQ: {line}");
                         string response = await ProcessRequestAsync(line, callerSid, callerIsAdmin);

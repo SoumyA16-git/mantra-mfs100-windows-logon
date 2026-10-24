@@ -23,6 +23,7 @@ timeout /t 1 /nobreak >nul
 if exist "C:\Program Files\MFS100\" (
     copy /y "%~dp0MFS100BridgeSvc.exe" "C:\Program Files\MFS100\" >nul 2>&1
     copy /y "%~dp0MFS100Worker.exe" "C:\Program Files\MFS100\" >nul 2>&1
+    copy /y "%~dp0*.dll" "C:\Program Files\MFS100\" >nul 2>&1
 )
 sc query MFS100BridgeSvc >nul 2>&1
 if errorlevel 1 (

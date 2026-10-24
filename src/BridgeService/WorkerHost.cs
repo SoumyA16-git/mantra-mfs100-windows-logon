@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 
 namespace MFS100BridgeSvc
 {
@@ -177,8 +178,22 @@ namespace MFS100BridgeSvc
                                 if (line == null)
                                     throw new IOException("Worker returned EOF");
                                 line = line.Trim();
-                                if (line.Length > 0 && line.StartsWith("{") && line.EndsWith("}"))
-                                    return line;
+                                
+                                int jsonStart = line.IndexOf('{');
+                                int jsonEnd = line.LastIndexOf('}');
+                                if (jsonStart >= 0 && jsonEnd > jsonStart)
+                                {
+                                    string jsonCandidate = line.Substring(jsonStart, jsonEnd - jsonStart + 1).Trim();
+                                    try
+                                    {
+                                        var parsed = JObject.Parse(jsonCandidate);
+                                        if (parsed["ok"] != null || parsed["cmd"] != null || parsed["score"] != null)
+                                        {
+                                            return jsonCandidate;
+                                        }
+                                    }
+                                    catch { }
+                                }
 
                                 // Native SDK printf chatter (e.g. "MFS100AutoCapture Quality = N") - ignore it
                                 ServiceLog.Info($"[Worker-IgnoredChatter] {line}");
